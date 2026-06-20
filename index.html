@@ -1470,6 +1470,7 @@
         // Expose functions called from HTML inline event handlers (onclick / oninput)
         window.loadFromUrl = loadFromUrl;
         window.resetScene = resetScene;
+        window.clearCacheAndReload = clearCacheAndReload;
 
         async function loadFromUrl() {
             const url = document.getElementById('url-input').value.trim();
