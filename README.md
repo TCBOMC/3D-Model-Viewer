@@ -29,48 +29,25 @@
 
 支持配置打开网页时自动加载的默认模型，无需用户手动上传。
 
-### 配置步骤
+### 使用方法
 
 1. **准备模型文件**：将模型文件（如 `model.glb`）放入 `default-models/` 文件夹
 
-2. **编辑配置文件**：修改 `config.json`，指定默认模型路径
-   ```json
-   {
-     "defaultModels": [
-       {
-         "name": "My Model",
-         "path": "./default-models/model.glb",
-         "autoLoad": true
-       }
-     ]
-   }
-   ```
+2. **推送到 GitHub**：将更改推送到 `main` 分支，GitHub Actions 会自动部署到 GitHub Pages
 
-3. **推送到 GitHub**：将更改推送到 `main` 分支，GitHub Actions 会自动部署到 GitHub Pages
+3. **自动加载**：网页会自动加载 `default-models/` 文件夹中的第一个模型文件
 
-### config.json 配置说明
+### 支持的模型文件
 
-```json
-{
-  "defaultModels": [
-    {
-      "name": "模型名称",      // 显示在页面上的名称
-      "path": "./path/to/model.glb",  // 模型文件路径（相对于根目录）
-      "autoLoad": true        // 是否自动加载
-    }
-  ],
-  "settings": {
-    "autoLock": false,        // 是否自动锁定鼠标
-    "defaultSpeed": 6.0,     // 默认移动速度
-    "showFPS": true          // 是否显示 FPS
-  }
-}
-```
+网页会自动识别以下文件（按优先级）：
+- `model.glb` / `model.gltf`
+- `default.glb` / `default.gltf`
+- `scene.glb` / `scene.gltf`
+- 任何其他 `.glb`、`.gltf`、`.ply`、`.obj`、`.stl` 文件
 
 **注意**：
-- `path` 可以是相对路径（如 `./default-models/model.glb`）或绝对 URL（如 `https://example.com/model.glb`）
-- 如果配置多个模型，只有 `autoLoad: true` 的模型会自动加载
-- 如果没有配置 `autoLoad: true`，则加载第一个模型
+- 将你想要作为默认模型的文件命名为 `model.glb` 或 `default.glb`，确保它会被优先加载
+- 如果没有模型文件，网页会正常显示，不会尝试加载默认模型
 
 ## 🤖 自动部署 Workflow
 
