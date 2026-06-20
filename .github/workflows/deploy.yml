@@ -31,7 +31,6 @@ jobs:
       - name: Generate model manifest
         run: |
           cd default-models
-          echo '{"files":[]}' > manifest.json.tmp
           files=$(ls -1 *.glb *.gltf *.ply *.obj *.stl 2>/dev/null || echo "")
           if [ -n "$files" ]; then
             echo '{"files":[' > manifest.json
@@ -49,7 +48,6 @@ jobs:
             echo '{"files":[]}' > manifest.json
           fi
           cat manifest.json
-          mv manifest.json ../default-models/manifest.json
         continue-on-error: true
 
       - name: Setup Pages
