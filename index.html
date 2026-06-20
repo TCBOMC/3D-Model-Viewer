@@ -1066,11 +1066,57 @@
             renderer.render(scene, camera);
         }
 
+        // ===================== DEFAULT MODEL AUTO-LOAD =====================
+        async function loadDefaultModel() {
+            try {
+                const resp = await fetch('./config.json?t=' + Date.now());
+                if (!resp.ok) return;
+                const config = await resp.json();
+                if (!config.defaultModels || config.defaultModels.length === 0) return;
+
+                const defaultModel = config.defaultModels.find(m => m.autoLoad) || config.defaultModels[0];
+                if (!defaultModel) return;
+
+                const modelPath = defaultModel.path || defaultModel.url;
+                if (!modelPath) return;
+
+                // Hide welcome screen
+                document.getElementById('welcome').classList.add('hidden');
+
+                // Load the model
+                showLoading(`加载默认模型: ${defaultModel.name || 'Model'}...`);
+                const modelResp = await fetch(modelPath);
+                if (!modelResp.ok) throw new Error(`HTTP ${modelResp.status}`);
+                const buf = await modelResp.arrayBuffer();
+
+                const name = modelPath.split('/').pop().toLowerCase();
+                if (name.endsWith('.glb') || name.endsWith('.gltf')) {
+                    loadGLTF(buf, defaultModel.name || name);
+                } else if (name.endsWith('.ply')) {
+                    loadPLY(buf, defaultModel.name || name);
+                } else if (name.endsWith('.obj')) {
+                    loadOBJ(buf, defaultModel.name || name);
+                } else if (name.endsWith('.stl')) {
+                    loadSTL(buf, defaultModel.name || name);
+                } else {
+                    // Try GLTF by default
+                    loadGLTF(buf, defaultModel.name || name);
+                }
+            } catch (err) {
+                console.log('No default model configured or load failed:', err.message);
+                // Show welcome screen if no default model
+                document.getElementById('welcome').classList.remove('hidden');
+            }
+        }
+
         // ===================== START =====================
         init();
         lastFpsTime = performance.now();
         updateMouseModeHint();
         renderer.domElement.style.cursor = 'grab';
+
+        // Try to load default model, show welcome if none
+        loadDefaultModel();
 
         // Expose functions called from HTML inline event handlers (onclick / oninput)
         window.loadFromUrl = loadFromUrl;

@@ -11,16 +11,93 @@
 - 🔗 **URL 加载**：直接输入模型 URL 在线加载
 - 📊 **模型信息面板**：顶点数、面数统计
 - 🖱️ **拖放支持**：直接拖文件到页面即可加载
+- 🎯 **默认模型配置**：支持配置打开网页时自动加载的默认模型
 
-## 🚀 部署到 GitHub Pages
+## 🚀 快速开始
 
-1. Fork 或新建仓库，将 `index.html` 放入仓库根目录
+### 方法一：直接部署到 GitHub Pages
+
+1. Fork 或新建仓库，将本项目的所有文件推送到仓库
 2. 在仓库 **Settings → Pages** 中，Source 选择 `main` 分支，`/` (root) 文件夹
 3. 保存后等待 1-2 分钟，访问 `https://<用户名>.github.io/<仓库名>/`
 
-## 📝 本地使用
+### 方法二：本地使用
 
 直接用浏览器打开 `index.html` 即可（部分浏览器需 HTTP 服务，可运行 `python -m http.server 8080`）。
+
+## 🎯 配置默认模型
+
+支持配置打开网页时自动加载的默认模型，无需用户手动上传。
+
+### 配置步骤
+
+1. **准备模型文件**：将模型文件（如 `model.glb`）放入 `default-models/` 文件夹
+
+2. **编辑配置文件**：修改 `config.json`，指定默认模型路径
+   ```json
+   {
+     "defaultModels": [
+       {
+         "name": "My Model",
+         "path": "./default-models/model.glb",
+         "autoLoad": true
+       }
+     ]
+   }
+   ```
+
+3. **推送到 GitHub**：将更改推送到 `main` 分支，GitHub Actions 会自动部署到 GitHub Pages
+
+### config.json 配置说明
+
+```json
+{
+  "defaultModels": [
+    {
+      "name": "模型名称",      // 显示在页面上的名称
+      "path": "./path/to/model.glb",  // 模型文件路径（相对于根目录）
+      "autoLoad": true        // 是否自动加载
+    }
+  ],
+  "settings": {
+    "autoLock": false,        // 是否自动锁定鼠标
+    "defaultSpeed": 6.0,     // 默认移动速度
+    "showFPS": true          // 是否显示 FPS
+  }
+}
+```
+
+**注意**：
+- `path` 可以是相对路径（如 `./default-models/model.glb`）或绝对 URL（如 `https://example.com/model.glb`）
+- 如果配置多个模型，只有 `autoLoad: true` 的模型会自动加载
+- 如果没有配置 `autoLoad: true`，则加载第一个模型
+
+## 🤖 自动部署 Workflow
+
+本项目包含 GitHub Actions workflow，自动部署到 GitHub Pages。
+
+### Workflow 触发条件
+
+- 推送到 `main` 分支（当以下文件变更时）：
+  - `index.html`
+  - `config.json`
+  - `default-models/**`（默认模型文件夹）
+  - `.github/workflows/deploy.yml`
+- 手动触发（在 GitHub 仓库 **Actions** 页面点击 **Run workflow**）
+
+### Workflow 功能
+
+1. 检查代码
+2. 构建（如果需要）
+3. 部署到 GitHub Pages
+
+### 使用方法
+
+1. 将模型文件放入 `default-models/` 文件夹
+2. 修改 `config.json` 配置默认模型
+3. 提交并推送到 `main` 分支
+4. GitHub Actions 自动部署到 GitHub Pages
+5. 访问 `https://<用户名>.github.io/<仓库名>/` 查看效果
 
 ## 🎮 操作说明
 
@@ -67,3 +144,4 @@ https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Models/master/2.0/Dam
 
 - [Three.js r162](https://threejs.org/)（通过 CDN ES Module 引入）
 - 纯前端，无后端依赖，可直接部署到 GitHub Pages
+- GitHub Actions 自动部署
