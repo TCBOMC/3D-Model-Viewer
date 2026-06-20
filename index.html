@@ -297,6 +297,13 @@
             display: none;
         }
         #loading-progress-text.show { display: block; }
+        #loading-phase {
+            font-size: 11px;
+            color: rgba(255,255,255,0.3);
+            margin-top: 4px;
+            display: none;
+        }
+        #loading-phase.show { display: block; }
 
         /* Drop overlay */
         #drop-overlay {
@@ -466,6 +473,7 @@
             <div id="loading-progress-bar"></div>
         </div>
         <p id="loading-progress-text"></p>
+        <p id="loading-phase"></p>
     </div>
 
     <!-- Drop overlay -->
@@ -828,35 +836,90 @@
             });
         }
 
-        // Fetch with IndexedDB cache + progress
-        // Returns { buffer: ArrayBuffer, fromCache: boolean }
-        async function fetchWithCache(url, onProgress) {
-            // Step 1: try IndexedDB cache first
-            const cachedBuf = await getCachedModel(url);
-            if (cachedBuf) {
-                // Use cache immediately, then check for updates in background
-                onProgress(cachedBuf.byteLength, cachedBuf.byteLength);
-                // Check ETag in background (don't await)
-                fetch(url, { method: 'HEAD' }).then(resp => {
-                    if (resp.ok) {
-                        const etag = resp.headers.get('etag') || '';
-                        // Re-fetch if ETag changed (next page load will use new cache)
-                        // For now, just log
-                        console.log('Model cached, ETag:', etag);
-                    }
-                }).catch(() => {});
-                return { buffer: cachedBuf, fromCache: true };
-            }
 
-            // Step 2: not in cache, fetch from network with progress
-            const resp = await fetch(url);
+        // Get uncompressed file size via HEAD request (with Accept-Encoding: identity)
+        async function getUncompressedSize(url) {
+            try {
+                const resp = await fetch(url, {
+                    method: 'HEAD',
+                    headers: { 'Accept-Encoding': 'identity' }
+                });
+                if (resp.ok) {
+                    const size = resp.headers.get('content-length');
+                    if (size) return parseInt(size, 10);
+                }
+            } catch (e) {}
+            return 0;
+        }
+
+        // Check if a .gz compressed version is available (saves bandwidth)
+        async function hasGzVersion(url) {
+            // Only for same-origin URLs (GitHub Pages)
+            try {
+                const gzUrl = url + '.gz';
+                const resp = await fetch(gzUrl, { method: 'HEAD' });
+                return resp.ok;
+            } catch (e) {
+                return false;
+            }
+        }
+
+        // Decompress a gzip ArrayBuffer using DecompressionStream (modern browsers)
+        async function decompressGzip(compressedBuffer, onDecompressProgress) {
+            const decompressionStream = new DecompressionStream('gzip');
+            const writer = decompressionStream.writable.getWriter();
+            const reader = decompressionStream.readable.getReader();
+
+            // Write compressed data in chunks
+            const totalCompressed = compressedBuffer.byteLength;
+            const chunkSize = 64 * 1024;  // 64KB chunks
+            let written = 0;
+
+            // Start reading decompressed output in background
+            const decompressedChunks = [];
+            let totalDecompressed = 0;
+            const readPromise = (async () => {
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    decompressedChunks.push(value);
+                    totalDecompressed += value.byteLength;
+                    if (onDecompressProgress) {
+                        onDecompressProgress(totalDecompressed);
+                    }
+                }
+            })();
+
+            // Write compressed data
+            let offset = 0;
+            while (offset < totalCompressed) {
+                const chunk = compressedBuffer.slice(offset, offset + chunkSize);
+                await writer.write(chunk);
+                offset += chunk.byteLength;
+            }
+            await writer.close();
+            await readPromise;
+
+            // Merge decompressed chunks
+            const result = new Uint8Array(totalDecompressed);
+            let mergeOffset = 0;
+            for (const chunk of decompressedChunks) {
+                result.set(chunk, mergeOffset);
+                mergeOffset += chunk.byteLength;
+            }
+            return result.buffer;
+        }
+
+        // Fetch + decompress .gz file with progress (compressed download + decompression)
+        // Returns { buffer: ArrayBuffer }
+        async function fetchGzipWithProgress(url, uncompressedSize, onProgress) {
+            const gzUrl = url + '.gz';
+            const resp = await fetch(gzUrl);
             if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
 
-            const contentLength = resp.headers.get('content-length');
-            const totalBytes = contentLength ? parseInt(contentLength, 10) : 0;
-            const isCompressed = resp.headers.get('content-encoding') || resp.headers.get('Content-Encoding');
+            const compressedTotal = parseInt(resp.headers.get('content-length') || '0', 10);
 
-            let receivedBytes = 0;
+            let receivedCompressed = 0;
             const chunks = [];
 
             if (resp.body) {
@@ -865,28 +928,125 @@
                     const { done, value } = await reader.read();
                     if (done) break;
                     chunks.push(value);
-                    receivedBytes += value.byteLength;
-                    // If compressed, we don't know real total; show received only
-                    if (!isCompressed && totalBytes > 0) {
-                        onProgress(receivedBytes, totalBytes);
+                    receivedCompressed += value.byteLength;
+                    // Show compressed download progress
+                    if (compressedTotal > 0) {
+                        const pct = Math.round((receivedCompressed / compressedTotal) * 100);
+                        onProgress(receivedCompressed, compressedTotal, 'download', pct);
                     } else {
-                        onProgress(receivedBytes, 0);  // indeterminate
+                        onProgress(receivedCompressed, 0, 'download', 0);
                     }
                 }
             }
 
-            // Merge chunks
-            const merged = new Uint8Array(receivedBytes);
-            let offset = 0;
+            // Merge compressed chunks
+            const compressedBuf = new Uint8Array(receivedCompressed);
+            let off = 0;
             for (const chunk of chunks) {
-                merged.set(chunk, offset);
-                offset += chunk.byteLength;
+                compressedBuf.set(chunk, off);
+                off += chunk.byteLength;
             }
 
-            const buf = merged.buffer;
+            // Decompress
+            onProgress(0, uncompressedSize, 'decompress', 0);
+            const decompressed = await decompressGzip(compressedBuf.buffer, (decompressedReceived) => {
+                if (uncompressedSize > 0) {
+                    const pct = Math.round((decompressedReceived / uncompressedSize) * 100);
+                    onProgress(decompressedReceived, uncompressedSize, 'decompress', pct);
+                }
+            });
 
-            // Save to IndexedDB cache
-            const etag = resp.headers.get('etag') || '';
+            return decompressed;
+        }
+
+
+        // Fetch with IndexedDB cache + progress
+        // onProgress(received, total) - total=0 means indeterminate
+        // Returns { buffer: ArrayBuffer, fromCache: boolean }
+        async function fetchWithCache(url, onProgress) {
+            // Step 1: try IndexedDB cache first
+            const cachedBuf = await getCachedModel(url);
+            if (cachedBuf) {
+                onProgress(cachedBuf.byteLength, cachedBuf.byteLength);
+                // Check ETag in background for cache invalidation
+                fetch(url, { method: 'HEAD' }).then(resp => {
+                    if (resp.ok) {
+                        const etag = resp.headers.get('etag') || '';
+                        checkModelETag(url, etag).catch(() => {});
+                    }
+                }).catch(() => {});
+                return { buffer: cachedBuf, fromCache: true };
+            }
+
+            // Step 2: get uncompressed file size for accurate progress
+            const uncompressedSize = await getUncompressedSize(url);
+
+            // Step 3: try .gz version first (smaller download)
+            let buf;
+            let usedGz = false;
+            try {
+                // Only try .gz for same-origin URLs
+                if (url.startsWith(location.origin) || url.startsWith('./') || url.startsWith('/')) {
+                    const hasGz = await hasGzVersion(url);
+                    if (hasGz) {
+                        usedGz = true;
+                        const decompressed = await fetchGzipWithProgress(url, uncompressedSize || 0, (received, total, phase, pct) => {
+                            if (phase === 'download') {
+                                onProgress(received, total);  // compressed bytes
+                            } else {
+                                onProgress(received, total);  // decompressed bytes
+                            }
+                        });
+                        buf = decompressed;
+                    }
+                }
+            } catch (e) {
+                console.log('Gzip fetch failed, falling back to regular download:', e.message);
+            }
+
+            // Step 4: regular download (if .gz not available or failed)
+            if (!buf) {
+                const resp = await fetch(url);
+                if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+
+                // Use uncompressedSize from HEAD if available, otherwise fall back to content-length
+                let totalBytes = uncompressedSize || 0;
+                if (!totalBytes) {
+                    const contentLength = resp.headers.get('content-length');
+                    totalBytes = contentLength ? parseInt(contentLength, 10) : 0;
+                    // If response is gzip-compressed, content-length is compressed size
+                    // and received bytes (from ReadableStream) are decompressed -> mismatch
+                    // In that case, we can't show accurate total, so set to 0
+                    const isCompressed = resp.headers.get('content-encoding') || resp.headers.get('Content-Encoding');
+                    if (isCompressed) totalBytes = 0;
+                }
+
+                let receivedBytes = 0;
+                const chunks = [];
+
+                if (resp.body) {
+                    const reader = resp.body.getReader();
+                    while (true) {
+                        const { done, value } = await reader.read();
+                        if (done) break;
+                        chunks.push(value);
+                        receivedBytes += value.byteLength;
+                        onProgress(receivedBytes, totalBytes);
+                    }
+                }
+
+                // Merge chunks
+                const merged = new Uint8Array(receivedBytes);
+                let offset = 0;
+                for (const chunk of chunks) {
+                    merged.set(chunk, offset);
+                    offset += chunk.byteLength;
+                }
+                buf = merged.buffer;
+            }
+
+            // Step 5: save to IndexedDB cache (store decompressed)
+            const etag = '';
             setCachedModel(url, buf, etag);
 
             return { buffer: buf, fromCache: false };
@@ -898,6 +1058,7 @@
             document.getElementById('loading-progress-wrap').classList.remove('show');
             document.getElementById('loading-progress-bar').style.width = '0%';
             document.getElementById('loading-progress-text').classList.remove('show');
+            document.getElementById('loading-phase').classList.remove('show');
             document.getElementById('loading').classList.add('show');
         }
         function hideLoading() {
@@ -1151,6 +1312,7 @@
 
             try {
                 const { buffer: buf, fromCache } = await fetchWithCache(modelPath, (received, total) => {
+                    if (fromCache) return;
                     if (total > 0) {
                         progressBar.style.width = Math.round((received / total) * 100) + '%';
                         progressText.textContent = `${formatBytes(received)} / ${formatBytes(total)}`;
@@ -1160,6 +1322,7 @@
                 });
                 if (fromCache) {
                     progressText.textContent = `已缓存 ${formatBytes(buf.byteLength)}`;
+                    progressBar.style.width = '100%';
                 }
 
                 if (buf.byteLength < 100) {
@@ -1321,6 +1484,7 @@
 
             try {
                 const { buffer: buf, fromCache } = await fetchWithCache(url, (received, total) => {
+                    if (fromCache) return;
                     if (total > 0) {
                         progressBar.style.width = Math.round((received / total) * 100) + '%';
                         progressText.textContent = `${formatBytes(received)} / ${formatBytes(total)}`;
@@ -1330,6 +1494,7 @@
                 });
                 if (fromCache) {
                     progressText.textContent = `已缓存 ${formatBytes(buf.byteLength)}`;
+                    progressBar.style.width = '100%';
                 }
                 const name = url.split('/').pop().toLowerCase();
                 if (name.endsWith('.glb') || name.endsWith('.gltf')) {

@@ -28,9 +28,22 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Generate model manifest
+      - name: Generate model manifest & gzip compressed versions
         run: |
           cd default-models
+
+          # Generate .gz compressed versions to save bandwidth
+          echo "Generating .gz compressed models..."
+          for ext in glb gltf ply obj stl; do
+            for f in *.${ext} 2>/dev/null; do
+              if [ -f "$f" ] && [ ! -f "${f}.gz" ]; then
+                gzip -k -9 "$f"
+                echo "  Compressed: $f -> ${f}.gz ($(du -h ${f}.gz | cut -f1) / $(du -h $f | cut -f1))"
+              fi
+            done
+          done
+
+          # Generate manifest.json with both original and .gz info
           files=$(ls -1 *.glb *.gltf *.ply *.obj *.stl 2>/dev/null || echo "")
           if [ -n "$files" ]; then
             echo '{"files":[' > manifest.json
@@ -41,14 +54,21 @@ jobs:
               else
                 echo "," >> manifest.json
               fi
-              echo -n "{\"name\":\"$f\",\"path\":\"./default-models/$f\"}" >> manifest.json
+              # Check if .gz version exists
+              if [ -f "${f}.gz" ]; then
+                orig_size=$(stat -c%s "$f" 2>/dev/null || stat -f%z "$f")
+                gz_size=$(stat -c%s "${f}.gz" 2>/dev/null || stat -f%z "${f}.gz")
+                echo -n "{\"name\":\"$f\",\"path\":\"./default-models/$f\",\"gz\":\"${f}.gz\",\"origSize\":${orig_size},\"gzSize\":${gz_size}}" >> manifest.json
+              else
+                echo -n "{\"name\":\"$f\",\"path\":\"./default-models/$f\"}" >> manifest.json
+              fi
             done
             echo ']}' >> manifest.json
           else
             echo '{"files":[]}' > manifest.json
           fi
+          echo "Manifest generated:"
           cat manifest.json
-        continue-on-error: true
 
       - name: Setup Pages
         uses: actions/configure-pages@v4
