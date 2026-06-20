@@ -387,6 +387,14 @@
                     <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
                 </svg>
             </button>
+
+            <button class="btn btn-ghost" onclick="clearCacheAndReload()" title="清除模型缓存">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="23 4 23 10 17 10"/>
+                    <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+                </svg>
+                清缓存
+            </button>
         </div>
 
         <!-- Controls hint -->
@@ -506,6 +514,24 @@
         window._scene = null;
         window._currentModel = null;
         window._pointCloudObj = null;
+
+
+        // Clear all caches and reload
+        async function clearCacheAndReload() {
+            if (!confirm('确定要清除所有模型缓存吗？\n这不会删除默认模型文件，只会清除浏览器中的缓存。')) return;
+            try {
+                await clearModelCache();
+                // Also clear Service Worker caches if any
+                if ('caches' in window) {
+                    const cacheNames = await caches.keys();
+                    await Promise.all(cacheNames.map(n => caches.delete(n)));
+                }
+                alert('缓存已清除，页面将刷新。');
+                location.reload();
+            } catch (e) {
+                alert('清除缓存失败: ' + e.message);
+            }
+        }
 
         // ===================== INIT =====================
         function init() {
@@ -721,6 +747,151 @@
             }
         }
 
+
+        // ===================== CACHE (IndexedDB) =====================
+        const CACHE_DB_NAME = '3d-model-viewer-cache';
+        const CACHE_DB_VERSION = 1;
+        const CACHE_STORE_NAME = 'models';
+
+        function openCacheDB() {
+            return new Promise((resolve, reject) => {
+                const req = indexedDB.open(CACHE_DB_NAME, CACHE_DB_VERSION);
+                req.onupgradeneeded = (e) => {
+                    const db = e.target.result;
+                    if (!db.objectStoreNames.contains(CACHE_STORE_NAME)) {
+                        db.createObjectStore(CACHE_STORE_NAME, { keyPath: 'url' });
+                    }
+                };
+                req.onsuccess = () => resolve(req.result);
+                req.onerror = () => reject(req.error);
+            });
+        }
+
+        async function getCachedModel(url) {
+            const db = await openCacheDB();
+            return new Promise((resolve) => {
+                const tx = db.transaction(CACHE_STORE_NAME, 'readonly');
+                const store = tx.objectStore(CACHE_STORE_NAME);
+                const req = store.get(url);
+                req.onsuccess = () => {
+                    const result = req.result;
+                    if (result && result.buffer) {
+                        let buf = result.buffer;
+                        // Ensure it's an ArrayBuffer (not Uint8Array)
+                        if (buf.byteLength !== undefined && buf.buffer) {
+                            buf = buf.buffer;  // Uint8Array -> ArrayBuffer
+                        }
+                        resolve(buf);
+                    } else {
+                        resolve(null);
+                    }
+                };
+                req.onerror = () => resolve(null);
+            });
+        }
+
+        async function setCachedModel(url, arrayBuffer, etag) {
+            const db = await openCacheDB();
+            return new Promise((resolve) => {
+                const tx = db.transaction(CACHE_STORE_NAME, 'readwrite');
+                const store = tx.objectStore(CACHE_STORE_NAME);
+                store.put({
+                    url: url,
+                    buffer: arrayBuffer,
+                    etag: etag || '',
+                    timestamp: Date.now()
+                });
+                tx.oncomplete = () => resolve();
+                tx.onerror = () => resolve();
+            });
+        }
+
+        async function checkModelETag(url, cachedEtag) {
+            try {
+                const resp = await fetch(url, { method: 'HEAD' });
+                if (!resp.ok) return false;
+                const etag = resp.headers.get('etag') || '';
+                return etag && cachedEtag && etag === cachedEtag;
+            } catch (e) {
+                return false;
+            }
+        }
+
+        async function clearModelCache() {
+            const db = await openCacheDB();
+            return new Promise((resolve) => {
+                const tx = db.transaction(CACHE_STORE_NAME, 'readwrite');
+                const store = tx.objectStore(CACHE_STORE_NAME);
+                store.clear();
+                tx.oncomplete = () => resolve();
+                tx.onerror = () => resolve();
+            });
+        }
+
+        // Fetch with IndexedDB cache + progress
+        // Returns { buffer: ArrayBuffer, fromCache: boolean }
+        async function fetchWithCache(url, onProgress) {
+            // Step 1: try IndexedDB cache first
+            const cachedBuf = await getCachedModel(url);
+            if (cachedBuf) {
+                // Use cache immediately, then check for updates in background
+                onProgress(cachedBuf.byteLength, cachedBuf.byteLength);
+                // Check ETag in background (don't await)
+                fetch(url, { method: 'HEAD' }).then(resp => {
+                    if (resp.ok) {
+                        const etag = resp.headers.get('etag') || '';
+                        // Re-fetch if ETag changed (next page load will use new cache)
+                        // For now, just log
+                        console.log('Model cached, ETag:', etag);
+                    }
+                }).catch(() => {});
+                return { buffer: cachedBuf, fromCache: true };
+            }
+
+            // Step 2: not in cache, fetch from network with progress
+            const resp = await fetch(url);
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+
+            const contentLength = resp.headers.get('content-length');
+            const totalBytes = contentLength ? parseInt(contentLength, 10) : 0;
+            const isCompressed = resp.headers.get('content-encoding') || resp.headers.get('Content-Encoding');
+
+            let receivedBytes = 0;
+            const chunks = [];
+
+            if (resp.body) {
+                const reader = resp.body.getReader();
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    chunks.push(value);
+                    receivedBytes += value.byteLength;
+                    // If compressed, we don't know real total; show received only
+                    if (!isCompressed && totalBytes > 0) {
+                        onProgress(receivedBytes, totalBytes);
+                    } else {
+                        onProgress(receivedBytes, 0);  // indeterminate
+                    }
+                }
+            }
+
+            // Merge chunks
+            const merged = new Uint8Array(receivedBytes);
+            let offset = 0;
+            for (const chunk of chunks) {
+                merged.set(chunk, offset);
+                offset += chunk.byteLength;
+            }
+
+            const buf = merged.buffer;
+
+            // Save to IndexedDB cache
+            const etag = resp.headers.get('etag') || '';
+            setCachedModel(url, buf, etag);
+
+            return { buffer: buf, fromCache: false };
+        }
+
         // ===================== LOADING =====================
         function showLoading(msg) {
             document.getElementById('loading-text').textContent = msg || '加载中...';
@@ -733,47 +904,7 @@
             document.getElementById('loading').classList.remove('show');
         }
 
-        // Fetch a URL and track download progress via ReadableStream
-        // Returns { buffer: ArrayBuffer }
-        async function fetchWithProgress(url, onProgress) {
-            const resp = await fetch(url);
-            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-
-            const contentLength = resp.headers.get('content-length');
-            const totalBytes = contentLength ? parseInt(contentLength, 10) : 0;
-
-            // No content-length or no stream support: fall back to simple arrayBuffer
-            if (!totalBytes || !resp.body) {
-                onProgress(0, 0);  // indicate indeterminate
-                const buf = await resp.arrayBuffer();
-                onProgress(buf.byteLength, buf.byteLength);
-                return { buffer: buf, hasProgress: false };
-            }
-
-            const reader = resp.body.getReader();
-            const chunks = [];
-            let receivedBytes = 0;
-
-            while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
-                chunks.push(value);
-                receivedBytes += value.byteLength;
-                onProgress(receivedBytes, totalBytes);
-            }
-
-            // Merge chunks into a single Uint8Array then ArrayBuffer
-            const merged = new Uint8Array(receivedBytes);
-            let offset = 0;
-            for (const chunk of chunks) {
-                merged.set(chunk, offset);
-                offset += chunk.byteLength;
-            }
-
-            return { buffer: merged.buffer, hasProgress: true };
-        }
-
-        function formatBytes(bytes) {
+                function formatBytes(bytes) {
             if (bytes < 1024) return bytes + ' B';
             if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
             return (bytes / (1024 * 1024)).toFixed(2) + ' MB';
@@ -1019,7 +1150,7 @@
             progressText.classList.add('show');
 
             try {
-                const { buffer: buf } = await fetchWithProgress(modelPath, (received, total) => {
+                const { buffer: buf, fromCache } = await fetchWithCache(modelPath, (received, total) => {
                     if (total > 0) {
                         progressBar.style.width = Math.round((received / total) * 100) + '%';
                         progressText.textContent = `${formatBytes(received)} / ${formatBytes(total)}`;
@@ -1027,6 +1158,9 @@
                         progressText.textContent = formatBytes(received);
                     }
                 });
+                if (fromCache) {
+                    progressText.textContent = `已缓存 ${formatBytes(buf.byteLength)}`;
+                }
 
                 if (buf.byteLength < 100) {
                     hideLoading();
@@ -1186,7 +1320,7 @@
             progressText.classList.add('show');
 
             try {
-                const { buffer: buf } = await fetchWithProgress(url, (received, total) => {
+                const { buffer: buf, fromCache } = await fetchWithCache(url, (received, total) => {
                     if (total > 0) {
                         progressBar.style.width = Math.round((received / total) * 100) + '%';
                         progressText.textContent = `${formatBytes(received)} / ${formatBytes(total)}`;
@@ -1194,6 +1328,9 @@
                         progressText.textContent = formatBytes(received);
                     }
                 });
+                if (fromCache) {
+                    progressText.textContent = `已缓存 ${formatBytes(buf.byteLength)}`;
+                }
                 const name = url.split('/').pop().toLowerCase();
                 if (name.endsWith('.glb') || name.endsWith('.gltf')) {
                     loadGLTF(buf, name);
