@@ -1070,24 +1070,58 @@
         async function loadDefaultModel() {
             try {
                 const resp = await fetch('./config.json?t=' + Date.now());
-                if (!resp.ok) return;
+                if (!resp.ok) {
+                    console.log('No config.json found, showing welcome screen');
+                    return;
+                }
                 const config = await resp.json();
-                if (!config.defaultModels || config.defaultModels.length === 0) return;
+                if (!config.defaultModels || config.defaultModels.length === 0) {
+                    console.log('No default models configured');
+                    return;
+                }
 
                 const defaultModel = config.defaultModels.find(m => m.autoLoad) || config.defaultModels[0];
-                if (!defaultModel) return;
+                if (!defaultModel) {
+                    console.log('No default model found');
+                    return;
+                }
 
                 const modelPath = defaultModel.path || defaultModel.url;
-                if (!modelPath) return;
+                if (!modelPath) {
+                    console.log('No model path specified');
+                    return;
+                }
 
                 // Hide welcome screen
                 document.getElementById('welcome').classList.add('hidden');
 
-                // Load the model
+                // Load the model with timeout
                 showLoading(`加载默认模型: ${defaultModel.name || 'Model'}...`);
-                const modelResp = await fetch(modelPath);
-                if (!modelResp.ok) throw new Error(`HTTP ${modelResp.status}`);
+
+                // Set timeout for model loading (30 seconds)
+                const timeoutPromise = new Promise((_, reject) => {
+                    setTimeout(() => reject(new Error('加载超时（30秒）')), 30000);
+                });
+
+                const modelResp = await Promise.race([
+                    fetch(modelPath),
+                    timeoutPromise
+                ]);
+
+                if (!modelResp.ok) {
+                    throw new Error(`无法加载模型文件 (${modelResp.status} ${modelResp.statusText})`);
+                }
+
+                const contentLength = modelResp.headers.get('content-length');
+                if (contentLength && parseInt(contentLength) < 1000) {
+                    console.warn('Model file seems too small, might be an error page');
+                }
+
                 const buf = await modelResp.arrayBuffer();
+
+                if (buf.byteLength < 1000) {
+                    throw new Error('模型文件太小，可能不是有效的模型文件');
+                }
 
                 const name = modelPath.split('/').pop().toLowerCase();
                 if (name.endsWith('.glb') || name.endsWith('.gltf')) {
@@ -1103,9 +1137,38 @@
                     loadGLTF(buf, defaultModel.name || name);
                 }
             } catch (err) {
-                console.log('No default model configured or load failed:', err.message);
-                // Show welcome screen if no default model
-                document.getElementById('welcome').classList.remove('hidden');
+                console.error('Default model load failed:', err);
+                hideLoading();
+
+                // Show error message to user
+                const welcome = document.getElementById('welcome');
+                welcome.classList.remove('hidden');
+
+                // Add error message
+                let errorMsg = document.getElementById('default-model-error');
+                if (!errorMsg) {
+                    errorMsg = document.createElement('div');
+                    errorMsg.id = 'default-model-error';
+                    errorMsg.style.cssText = `
+                        margin-top: 20px;
+                        padding: 12px 20px;
+                        background: rgba(239, 68, 68, 0.15);
+                        border: 1px solid rgba(239, 68, 68, 0.3);
+                        border-radius: 10px;
+                        color: #fca5a5;
+                        font-size: 13px;
+                        max-width: 500px;
+                        text-align: center;
+                    `;
+                    welcome.querySelector('p.subtitle').after(errorMsg);
+                }
+                errorMsg.innerHTML = `
+                    <strong>⚠️ 默认模型加载失败</strong><br>
+                    ${err.message}<br>
+                    <small style="color: rgba(255,255,255,0.4); margin-top: 8px; display: block;">
+                        请检查 config.json 配置，或手动上传模型文件
+                    </small>
+                `;
             }
         }
 
