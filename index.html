@@ -98,7 +98,7 @@
         #url-input {
             width: 260px;
             padding: 8px 14px;
-            background: rgba(255,255,255,0.07);
+            background: rgba(255,255,255,0.06);
             border: 1px solid rgba(255,255,255,0.12);
             border-radius: 10px;
             color: #e6edf3;
@@ -109,204 +109,230 @@
         #url-input:focus {
             border-color: #6366f1;
         }
-        #url-input::placeholder { color: rgba(255,255,255,0.3); }
 
-        /* Side info panel */
-        #info-panel {
-            position: absolute;
-            top: 80px;
-            right: 16px;
-            width: 260px;
-            background: rgba(13,17,23,0.85);
-            backdrop-filter: blur(12px);
-            border-radius: 14px;
-            border: 1px solid rgba(255,255,255,0.08);
-            padding: 18px;
-            display: none;
-            box-shadow: 0 8px 32px rgba(0,0,0,0.4);
-        }
-        #info-panel.show { display: block; }
-
-        #info-panel h3 {
-            font-size: 14px;
-            color: #6366f1;
-            margin-bottom: 12px;
-            padding-bottom: 8px;
-            border-bottom: 1px solid rgba(255,255,255,0.06);
-        }
-
-        .info-item {
-            display: flex;
-            justify-content: space-between;
-            padding: 4px 0;
-            font-size: 12.5px;
-        }
-        .info-item .label { color: rgba(255,255,255,0.45); }
-        .info-item .value { color: #e6edf3; font-weight: 600; }
-
-        .slider-row {
-            margin-top: 14px;
-            padding-top: 12px;
-            border-top: 1px solid rgba(255,255,255,0.06);
-        }
-        .slider-row label {
-            display: block;
-            font-size: 12px;
-            color: rgba(255,255,255,0.5);
-            margin-bottom: 6px;
-        }
-        .slider-row input[type=range] {
-            width: 100%;
-            height: 4px;
-            -webkit-appearance: none;
-            background: rgba(255,255,255,0.1);
-            border-radius: 2px;
-            outline: none;
-        }
-        .slider-row input[type=range]::-webkit-slider-thumb {
-            -webkit-appearance: none;
-            width: 14px; height: 14px;
-            background: #6366f1;
-            border-radius: 50%;
-            cursor: pointer;
-        }
-
-        /* Welcome overlay */
+        /* Welcome screen */
         #welcome {
-            position: absolute;
+            position: fixed;
             inset: 0;
+            z-index: 20;
             display: flex;
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            pointer-events: auto;
+            background: rgba(13, 17, 23, 0.92);
+            backdrop-filter: blur(20px);
+            transition: opacity 0.3s;
         }
-        #welcome.hidden { display: none; }
+        #welcome.hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
 
         #welcome h1 {
-            font-size: 52px;
+            font-size: 42px;
             font-weight: 800;
-            background: linear-gradient(135deg, #6366f1, #a78bfa, #6366f1);
-            background-size: 200% auto;
+            background: linear-gradient(135deg, #e6edf3, #6366f1);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
-            animation: gradient-shift 3s ease infinite;
-        }
-        @keyframes gradient-shift {
-            0%,100% { background-position: 0% center; }
-            50% { background-position: 200% center; }
+            background-clip: text;
+            margin-bottom: 12px;
         }
 
-        #welcome .subtitle {
-            font-size: 17px;
-            color: rgba(255,255,255,0.45);
-            margin: 12px 0 36px;
-        }
-
-        #welcome .btn {
+        #welcome p.subtitle {
+            color: rgba(255,255,255,0.5);
             font-size: 16px;
-            padding: 14px 36px;
-            border-radius: 14px;
+            margin-bottom: 40px;
         }
 
-        .drop-hint {
-            margin-top: 16px;
-            font-size: 13px;
-            color: rgba(255,255,255,0.25);
-        }
-
-        /* Controls hint */
-        #controls-hint {
-            position: absolute;
-            bottom: 20px;
-            left: 50%;
-            transform: translateX(-50%);
-            background: rgba(13,17,23,0.8);
-            backdrop-filter: blur(8px);
-            padding: 12px 24px;
-            border-radius: 12px;
-            border: 1px solid rgba(255,255,255,0.06);
-            font-size: 12.5px;
-            color: rgba(255,255,255,0.55);
+        .welcome-actions {
             display: flex;
             gap: 16px;
             align-items: center;
         }
 
-        kbd {
+        /* Controls hint */
+        #controls-hint {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            gap: 16px;
+            font-size: 12.5px;
+            color: rgba(255,255,255,0.35);
+            background: rgba(13, 17, 23, 0.7);
+            backdrop-filter: blur(8px);
+            padding: 10px 24px;
+            border-radius: 10px;
+            border: 1px solid rgba(255,255,255,0.06);
+            z-index: 10;
+        }
+        #controls-hint kbd {
             display: inline-block;
             background: rgba(255,255,255,0.08);
             border: 1px solid rgba(255,255,255,0.15);
-            padding: 2px 7px;
             border-radius: 5px;
-            font-family: 'SF Mono', 'Fira Code', monospace;
+            padding: 2px 7px;
             font-size: 11.5px;
-            color: rgba(255,255,255,0.7);
+            font-family: inherit;
+            margin: 0 3px;
+        }
+
+        /* Info panel */
+        #info-panel {
+            position: fixed;
+            top: 80px;
+            right: 20px;
+            width: 240px;
+            background: rgba(13, 17, 23, 0.88);
+            backdrop-filter: blur(12px);
+            border-radius: 14px;
+            border: 1px solid rgba(255,255,255,0.08);
+            padding: 18px;
+            z-index: 10;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s;
+        }
+        #info-panel.show {
+            opacity: 1;
+            pointer-events: auto;
+        }
+        #info-panel h3 {
+            font-size: 15px;
+            font-weight: 700;
+            margin-bottom: 12px;
+            color: #e6edf3;
+        }
+        .info-row {
+            display: flex;
+            justify-content: space-between;
+            font-size: 12.5px;
+            padding: 5px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+        }
+        .info-row:last-child { border: none; }
+        .info-row .label { color: rgba(255,255,255,0.5); }
+        .info-row .value { color: #e6edf3; font-weight: 600; }
+
+        /* Point cloud controls */
+        #point-size-row, #point-color-row {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            margin-top: 12px;
+            padding-top: 12px;
+            border-top: 1px solid rgba(255,255,255,0.08);
+        }
+        #point-size-row label, #point-color-row label {
+            font-size: 12px;
+            color: rgba(255,255,255,0.6);
+        }
+        #point-size-slider {
+            width: 100%;
+            accent-color: #6366f1;
+        }
+        #point-color-select {
+            background: rgba(255,255,255,0.06);
+            border: 1px solid rgba(255,255,255,0.12);
+            border-radius: 8px;
+            color: #e6edf3;
+            padding: 6px 10px;
+            font-size: 12.5px;
+            outline: none;
         }
 
         /* Loading overlay */
         #loading {
             position: fixed;
             inset: 0;
-            background: rgba(13,17,23,0.92);
+            z-index: 50;
             display: none;
+            flex-direction: column;
             align-items: center;
             justify-content: center;
-            z-index: 1000;
-            flex-direction: column;
-            gap: 20px;
+            background: rgba(13, 17, 23, 0.9);
         }
         #loading.show { display: flex; }
 
         .spinner {
-            width: 44px; height: 44px;
-            border: 3px solid rgba(255,255,255,0.08);
+            width: 44px;
+            height: 44px;
+            border: 4px solid rgba(255,255,255,0.1);
             border-top-color: #6366f1;
             border-radius: 50%;
             animation: spin 0.8s linear infinite;
+            margin-bottom: 20px;
         }
         @keyframes spin { to { transform: rotate(360deg); } }
 
-        #loading p {
+        #loading-text {
             font-size: 15px;
-            color: rgba(255,255,255,0.6);
+            color: rgba(255,255,255,0.7);
         }
 
         /* Drop overlay */
         #drop-overlay {
             position: fixed;
             inset: 0;
-            background: rgba(99,102,241,0.15);
-            border: 3px dashed #6366f1;
+            z-index: 60;
             display: none;
             align-items: center;
             justify-content: center;
-            z-index: 500;
-            font-size: 22px;
+            background: rgba(99, 102, 241, 0.15);
+            border: 3px dashed #6366f1;
+            font-size: 24px;
             font-weight: 700;
-            color: #a5b4fc;
-            backdrop-filter: blur(4px);
+            color: #6366f1;
         }
         #drop-overlay.show { display: flex; }
 
         /* FPS counter */
-        #fps {
-            position: absolute;
+        #fps-counter {
+            position: fixed;
             top: 80px;
-            left: 16px;
-            font-size: 12px;
-            font-family: monospace;
-            color: rgba(255,255,255,0.35);
+            left: 20px;
+            font-size: 13px;
+            color: rgba(255,255,255,0.4);
+            font-family: 'Courier New', monospace;
+            z-index: 10;
+        }
+
+        /* Mouse mode indicator */
+        #mouse-mode-hint {
+            color: #6366f1;
+            font-weight: 700;
+        }
+
+        /* Shortcut warning toast */
+        #shortcut-warning {
+            position: fixed;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%) translateY(-100px);
+            background: rgba(234, 179, 8, 0.95);
+            color: #000;
+            padding: 10px 20px;
+            border-radius: 10px;
+            font-size: 13.5px;
+            font-weight: 600;
+            z-index: 100;
+            transition: transform 0.3s ease;
+            pointer-events: none;
+        }
+        #shortcut-warning.show {
+            transform: translateX(-50%) translateY(0);
         }
     </style>
 </head>
 <body>
+
     <div id="canvas-container"></div>
 
+    <!-- UI -->
     <div id="ui">
         <!-- Toolbar -->
         <div id="toolbar" class="panel">
-            <input type="file" id="file-input" accept=".glb,.gltf,.ply,.pcd,.obj,.stl">
             <button class="btn btn-primary" onclick="document.getElementById('file-input').click()">
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
@@ -315,10 +341,19 @@
                 </svg>
                 上传模型
             </button>
+
             <div class="url-bar">
-                <input type="text" id="url-input" placeholder="模型 URL (.glb / .gltf / .ply)">
-                <button class="btn btn-ghost" onclick="loadFromUrl()">加载</button>
+                <input id="url-input" type="text" placeholder="输入模型 URL..." />
+                <button class="btn btn-ghost" onclick="loadFromUrl()">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="10"/>
+                        <line x1="2" y1="12" x2="22" y2="12"/>
+                        <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+                    </svg>
+                    加载
+                </button>
             </div>
+
             <button class="btn btn-ghost" onclick="resetScene()" title="清空场景">
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
                     <polyline points="3 6 5 6 21 6"/>
@@ -327,48 +362,65 @@
             </button>
         </div>
 
-        <!-- Model info -->
-        <div id="info-panel">
-            <h3>模型信息</h3>
-            <div class="info-item"><span class="label">名称</span><span class="value" id="info-name">-</span></div>
-            <div class="info-item"><span class="label">类型</span><span class="value" id="info-type">-</span></div>
-            <div class="info-item"><span class="label">顶点数</span><span class="value" id="info-verts">-</span></div>
-            <div class="info-item"><span class="label">面数</span><span class="value" id="info-faces">-</span></div>
-            <div class="slider-row" id="point-size-row" style="display:none;">
-                <label>点大小: <span id="pt-size-label">0.05</span></label>
-                <input type="range" id="pt-size-slider" min="1" max="50" value="5" oninput="onPointSizeChange(this.value)">
-            </div>
-            <div class="slider-row" id="point-color-row" style="display:none;">
-                <label>点颜色</label>
-                <div style="display:flex;gap:6px;margin-top:6px;">
-                    <button class="btn btn-ghost" style="padding:5px 10px;font-size:11px;" onclick="setPointColor('default')">原始</button>
-                    <button class="btn btn-ghost" style="padding:5px 10px;font-size:11px;" onclick="setPointColor('height')">高度</button>
-                    <button class="btn btn-ghost" style="padding:5px 10px;font-size:11px;" onclick="setPointColor('normal')">法线</button>
-                </div>
-            </div>
-        </div>
-
-        <!-- Welcome screen -->
-        <div id="welcome">
-            <h1>3D Model Viewer</h1>
-            <p class="subtitle">Mesh & Point Cloud | WASD + 鼠标自由漫游</p>
-            <button class="btn btn-primary" onclick="document.getElementById('file-input').click()">选择模型文件</button>
-            <p class="drop-hint">或将文件拖放到窗口中</p>
-        </div>
-
         <!-- Controls hint -->
         <div id="controls-hint">
             <span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 移动</span>
             <span><kbd>鼠标</kbd> 环视</span>
             <span><kbd>Shift</kbd> 加速</span>
-            <span><kbd>Space</kbd> 上升</span>
+            <span><kbd>空格</kbd> 上升</span>
             <span><kbd>C</kbd> 下降</span>
             <span><kbd>Alt</kbd> 切换鼠标模式 [<span id="mouse-mode-hint">点击锁定</span>]</span>
-            <span style="color:rgba(255,255,255,0.3);">锁定后快捷键已屏蔽 · 按 Esc 释放</span>
+            <span style="color:rgba(255,255,255,0.3);">点击画面开始控制</span>
         </div>
 
         <!-- FPS -->
-        <div id="fps"></div>
+        <div id="fps-counter">FPS: --</div>
+
+        <!-- Info Panel -->
+        <div id="info-panel">
+            <h3>模型信息</h3>
+            <div class="info-row">
+                <span class="label">名称</span>
+                <span class="value" id="info-name">-</span>
+            </div>
+            <div class="info-row">
+                <span class="label">类型</span>
+                <span class="value" id="info-type">-</span>
+            </div>
+            <div class="info-row">
+                <span class="label">顶点数</span>
+                <span class="value" id="info-verts">-</span>
+            </div>
+            <div class="info-row">
+                <span class="label">面数</span>
+                <span class="value" id="info-faces">-</span>
+            </div>
+            <div id="point-size-row" style="display:none;">
+                <label>点大小</label>
+                <input type="range" id="point-size-slider" min="0.01" max="0.2" step="0.005" value="0.05"
+                       oninput="updatePointSize(this.value)">
+            </div>
+            <div id="point-color-row" style="display:none;">
+                <label>着色模式</label>
+                <select id="point-color-select" onchange="updatePointColor(this.value)">
+                    <option value="original">原始颜色</option>
+                    <option value="height">高度映射</option>
+                    <option value="normal">法线映射</option>
+                </select>
+            </div>
+        </div>
+    </div>
+
+    <!-- Welcome screen -->
+    <div id="welcome">
+        <h1>3D Model Viewer</h1>
+        <p class="subtitle">支持 Mesh 和点云模型 · FPS 风格自由漫游</p>
+        <div class="welcome-actions">
+            <button class="btn btn-primary" onclick="document.getElementById('file-input').click()">
+                选择模型文件
+            </button>
+            <span style="color:rgba(255,255,255,0.3);">或拖放文件到此处</span>
+        </div>
     </div>
 
     <!-- Loading -->
@@ -379,6 +431,12 @@
 
     <!-- Drop overlay -->
     <div id="drop-overlay">释放以加载模型</div>
+
+    <!-- Shortcut warning -->
+    <div id="shortcut-warning">已屏蔽浏览器快捷键</div>
+
+    <!-- File input -->
+    <input id="file-input" type="file" accept=".glb,.gltf,.ply,.obj,.stl" />
 
     <!-- Three.js + Loaders via CDN (ES Module) -->
     <script type="importmap">
@@ -414,13 +472,14 @@
         const BOOST = 3.0;
 
         // Expose for inline event handlers
-        window._THREE = THREE;
-        window._scene = null; // set in init
+        window._scene = null;
         window._currentModel = null;
         window._pointCloudObj = null;
 
         // ===================== INIT =====================
         function init() {
+            console.log('Initializing 3D scene...');
+
             // Scene
             scene = new THREE.Scene();
             scene.background = new THREE.Color(0x0d1117);
@@ -440,6 +499,8 @@
             renderer.toneMapping = THREE.ACESFilmicToneMapping;
             renderer.toneMappingExposure = 1.1;
             document.getElementById('canvas-container').appendChild(renderer.domElement);
+
+            console.log('Renderer created, canvas added to DOM');
 
             // Controls
             controls = new PointerLockControls(camera, renderer.domElement);
@@ -472,25 +533,13 @@
 
             // Animate
             animate();
-        }
 
-        // Browser shortcuts to block when pointer is locked
-        // Note: Ctrl+W/T/N cannot be blocked in most browsers (security restriction)
-        // But Ctrl+S/R/F etc. can be blocked
-        const BLOCKED_SHORTCUTS = {
-            'KeyW': 'W', 'KeyT': 'T', 'KeyN': 'N', 'KeyR': 'R',
-            'KeyS': 'S', 'KeyP': 'P', 'KeyF': 'F', 'KeyL': 'L', 'KeyK': 'K',
-        };
+            console.log('Initialization complete!');
+        }
 
         // ===================== EVENTS =====================
         function setupEvents() {
-            // Show warning before accidental tab close (only if a model is loaded)
-            window.addEventListener('beforeunload', (e) => {
-                if (currentModel) {
-                    e.preventDefault();
-                    e.returnValue = '';  // Required for beforeunload
-                }
-            });
+            console.log('Setting up events...');
 
             // Click to lock — behavior depends on mouseLockMode
             renderer.domElement.addEventListener('mousedown', (e) => {
@@ -530,17 +579,15 @@
             });
 
             // Keyboard
-            // Block browser shortcuts when pointer is locked (3D viewport active)
             document.addEventListener('keydown', e => {
                 if (!controls.isLocked) return;
 
                 const isCtrl = e.ctrlKey || e.metaKey;
 
                 // Block Ctrl+<key> browser shortcuts
-                if (isCtrl && e.code in BLOCKED_SHORTCUTS) {
+                if (isCtrl && ['KeyW', 'KeyT', 'KeyN', 'KeyR', 'KeyS', 'KeyP', 'KeyF', 'KeyL', 'KeyK'].includes(e.code)) {
                     e.preventDefault();
                     e.stopPropagation();
-                    showShortcutWarning('Ctrl+' + BLOCKED_SHORTCUTS[e.code]);
                     return;
                 }
 
@@ -548,7 +595,6 @@
                 if (e.code === 'F5' || e.code === 'F3') {
                     e.preventDefault();
                     e.stopPropagation();
-                    showShortcutWarning(e.code);
                     return;
                 }
 
@@ -573,7 +619,7 @@
                         if (mouseLockMode) controls.unlock();
                         break;
                 }
-            }, true); // use capture phase for better blocking
+            });
             document.addEventListener('keyup', e => {
                 switch(e.code) {
                     case 'KeyW': moveState.f = false; break;
@@ -612,6 +658,8 @@
             document.getElementById('url-input').addEventListener('keypress', e => {
                 if (e.key === 'Enter') loadFromUrl();
             });
+
+            console.log('Events setup complete');
         }
 
         // ===================== MOVEMENT =====================
@@ -652,11 +700,12 @@
         }
 
         function loadLocalFile(file) {
-            const name = file.name.toLowerCase();
-            showLoading(`加载 ${file.name}...`);
+            console.log('Loading local file:', file.name);
             const reader = new FileReader();
-            reader.onload = e => {
+            showLoading(`加载 ${file.name}...`);
+            reader.onload = (e) => {
                 const buf = e.target.result;
+                const name = file.name.toLowerCase();
                 if (name.endsWith('.glb') || name.endsWith('.gltf')) {
                     loadGLTF(buf, file.name);
                 } else if (name.endsWith('.ply')) {
@@ -666,404 +715,173 @@
                 } else if (name.endsWith('.stl')) {
                     loadSTL(buf, file.name);
                 } else {
-                    hideLoading();
-                    alert('不支持的格式。请使用 .glb .gltf .ply .obj .stl');
+                    loadGLTF(buf, file.name);
                 }
             };
             reader.readAsArrayBuffer(file);
         }
 
-        async function loadFromUrl() {
-            const url = document.getElementById('url-input').value.trim();
-            if (!url) return;
-            showLoading('从 URL 加载...');
-
-            try {
-                const resp = await fetch(url);
-                if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-                const buf = await resp.arrayBuffer();
-                const name = url.split('/').pop().toLowerCase();
-                if (name.endsWith('.glb') || name.endsWith('.gltf') || url.includes('.glb') || url.includes('.gltf')) {
-                    loadGLTF(buf, name);
-                } else if (name.endsWith('.ply') || url.includes('.ply')) {
-                    loadPLY(buf, name);
-                } else if (name.endsWith('.obj') || url.includes('.obj')) {
-                    loadOBJ(buf, name);
-                } else if (name.endsWith('.stl') || url.includes('.stl')) {
-                    loadSTL(buf, name);
-                } else {
-                    // Try GLTF by default
-                    loadGLTF(buf, name);
-                }
-            } catch (err) {
-                hideLoading();
-                alert('加载失败: ' + err.message);
-            }
-        }
-
-        // ===================== GLTF / GLB =====================
+        // ===================== LOADERS =====================
         function loadGLTF(buffer, fileName) {
+            console.log('Loading GLTF:', fileName);
             const loader = new GLTFLoader();
-            loader.parse(buffer, '', gltf => {
+            loader.parse(buffer, '', (gltf) => {
+                const model = gltf.scene;
                 clearModel();
-                currentModel = gltf.scene;
-                window._currentModel = currentModel;
+                // Center and scale
+                const box = new THREE.Box3().setFromObject(model);
+                const center = box.getCenter(new THREE.Vector3());
+                const size = box.getSize(new THREE.Vector3());
+                const maxDim = Math.max(size.x, size.y, size.z);
+                const scale = maxDim > 0 ? 5.0 / maxDim : 1;
+                model.position.sub(center);
+                model.scale.setScalar(scale);
+                model.position.y += size.y * scale * 0.5;
 
-                // Process materials & shadows
-                currentModel.traverse(child => {
+                // Enable shadows
+                model.traverse((child) => {
                     if (child.isMesh) {
                         child.castShadow = true;
                         child.receiveShadow = true;
-                        // Improve material
-                        if (child.material) {
-                            if (Array.isArray(child.material)) {
-                                child.material.forEach(m => { m.envMapIntensity = 1.0; });
-                            } else {
-                                child.material.envMapIntensity = 1.0;
-                            }
-                        }
                     }
                 });
 
-                scene.add(currentModel);
-                fitCameraToModel(currentModel);
+                scene.add(model);
+                currentModel = model;
+                window._currentModel = model;
 
-                // Count stats
-                let verts = 0, faces = 0;
-                currentModel.traverse(c => {
-                    if (c.isMesh && c.geometry) {
-                        const p = c.geometry.getAttribute('position');
-                        if (p) verts += p.count;
-                        if (c.geometry.index) {
-                            faces += c.geometry.index.count / 3;
-                        } else if (p) {
-                            faces += p.count / 3;
-                        }
+                // Update info
+                let vertCount = 0, faceCount = 0;
+                model.traverse((child) => {
+                    if (child.isMesh && child.geometry) {
+                        vertCount += child.geometry.attributes.position.count;
+                        if (child.geometry.index) faceCount += child.geometry.index.count / 3;
+                        else faceCount += child.geometry.attributes.position.count / 3;
                     }
                 });
+                updateInfoPanel(fileName, 'GLB/GLTF', vertCount, Math.round(faceCount));
 
-                showModelInfo(fileName, 'Mesh (GLB/GLTF)', verts, Math.floor(faces));
                 hideLoading();
-            }, err => {
+                document.getElementById('welcome').classList.add('hidden');
+                console.log('GLTF loaded successfully');
+            }, (err) => {
+                console.error('GLTF load error:', err);
                 hideLoading();
-                alert('GLTF 加载失败: ' + err.message);
+                alert('模型加载失败: ' + err.message);
             });
         }
 
-        // ===================== PLY (Point Cloud + Mesh) =====================
         function loadPLY(buffer, fileName) {
+            console.log('Loading PLY:', fileName);
             const loader = new PLYLoader();
-            try {
-                const geometry = loader.parse(buffer);
+            const geom = loader.parse(buffer);
+            const isPointCloud = geom.attributes.position.count > 100000 || !geom.index;
 
-                clearModel();
-
-                const hasColors = geometry.getAttribute('color') !== undefined;
-                const vertCount = geometry.getAttribute('position').count;
-
-                // Detect if it's a mesh (has normal matrix or we can compute faces)
-                const hasNormals = geometry.getAttribute('normal') !== undefined;
-
-                // Try to detect if it's a mesh by checking for face elements
-                // For simplicity, if vertex count is very high and no normals, treat as point cloud
-                let isPointCloud = !hasNormals || vertCount > 500000;
-
-                if (isPointCloud) {
-                    // Point cloud
-                    const material = new THREE.PointsMaterial({
-                        size: 0.03,
-                        vertexColors: hasColors,
-                        color: hasColors ? 0xffffff : 0x4ade80,
-                        sizeAttenuation: true,
-                        transparent: true,
-                        opacity: 0.9
-                    });
-                    pointCloudObj = new THREE.Points(geometry, material);
-                    window._pointCloudObj = pointCloudObj;
-
-                    currentModel = new THREE.Group();
-                    currentModel.add(pointCloudObj);
-                    scene.add(currentModel);
-
-                    fitCameraToModel(currentModel);
-                    showModelInfo(fileName, '点云 (PLY)', vertCount, '-');
-                    document.getElementById('point-size-row').style.display = 'flex';
-                    document.getElementById('point-color-row').style.display = 'flex';
-                } else {
-                    // Mesh from PLY
-                    geometry.computeVertexNormals();
-                    const material = new THREE.MeshStandardMaterial({
-                        color: hasColors ? 0xffffff : 0x6366f1,
-                        vertexColors: hasColors,
-                        roughness: 0.5,
-                        metalness: 0.1
-                    });
-                    const mesh = new THREE.Mesh(geometry, material);
-                    mesh.castShadow = true;
-                    mesh.receiveShadow = true;
-
-                    currentModel = new THREE.Group();
-                    currentModel.add(mesh);
-                    scene.add(currentModel);
-
-                    fitCameraToModel(currentModel);
-
-                    const pos = geometry.getAttribute('position');
-                    const f = geometry.index ? geometry.index.count / 3 : pos.count / 3;
-                    showModelInfo(fileName, 'Mesh (PLY)', pos.count, Math.floor(f));
-                }
-
-                hideLoading();
-            } catch (err) {
-                hideLoading();
-                alert('PLY 解析失败: ' + err.message);
-            }
-        }
-
-        // ===================== OBJ =====================
-        function loadOBJ(buffer, fileName) {
-            const loader = new OBJLoader();
-            try {
-                const text = new TextDecoder().decode(new Uint8Array(buffer));
-                const object = loader.parse(text);
-
-                clearModel();
-                currentModel = object;
-                window._currentModel = currentModel;
-
-                currentModel.traverse(child => {
-                    if (child.isMesh) {
-                        child.castShadow = true;
-                        child.receiveShadow = true;
-                        if (!child.material || child.material.color.getHex() === 0xffffff) {
-                            child.material = new THREE.MeshStandardMaterial({
-                                color: 0x6366f1, roughness: 0.5, metalness: 0.1
-                            });
-                        }
-                    }
-                });
-
-                scene.add(currentModel);
-                fitCameraToModel(currentModel);
-
-                let verts = 0, faces = 0;
-                currentModel.traverse(c => {
-                    if (c.isMesh && c.geometry) {
-                        const p = c.geometry.getAttribute('position');
-                        if (p) verts += p.count;
-                        if (c.geometry.index) faces += c.geometry.index.count / 3;
-                        else if (p) faces += p.count / 3;
-                    }
-                });
-
-                showModelInfo(fileName, 'Mesh (OBJ)', verts, Math.floor(faces));
-                hideLoading();
-            } catch (err) {
-                hideLoading();
-                alert('OBJ 加载失败: ' + err.message);
-            }
-        }
-
-        // ===================== STL =====================
-        function loadSTL(buffer, fileName) {
-            const loader = new STLLoader();
-            try {
-                const geometry = loader.parse(buffer);
-                geometry.computeVertexNormals();
-
-                clearModel();
-
-                const material = new THREE.MeshStandardMaterial({
-                    color: 0x6366f1, roughness: 0.5, metalness: 0.1
-                });
-                const mesh = new THREE.Mesh(geometry, material);
-                mesh.castShadow = true;
-                mesh.receiveShadow = true;
-
-                currentModel = new THREE.Group();
-                currentModel.add(mesh);
-                scene.add(currentModel);
-
-                fitCameraToModel(currentModel);
-
-                const pos = geometry.getAttribute('position');
-                const faces = geometry.index ? geometry.index.count / 3 : pos.count / 3;
-                showModelInfo(fileName, 'Mesh (STL)', pos.count, Math.floor(faces));
-                hideLoading();
-            } catch (err) {
-                hideLoading();
-                alert('STL 加载失败: ' + err.message);
-            }
-        }
-
-        // ===================== HELPERS =====================
-        function fitCameraToModel(model) {
-            const box = new THREE.Box3().setFromObject(model);
-            const size = box.getSize(new THREE.Vector3());
-            const center = box.getCenter(new THREE.Vector3());
-
-            const maxDim = Math.max(size.x, size.y, size.z);
-            const fov = camera.fov * (Math.PI / 180);
-            let cameraZ = Math.abs(maxDim / Math.sin(fov / 2)) * 0.8;
-            cameraZ = Math.max(cameraZ, 2);
-
-            // Move camera
-            camera.position.set(center.x, center.y + size.y * 0.3, center.z + cameraZ);
-            camera.lookAt(center);
-
-            // Also reset controls
-            controls.getObject().position.copy(camera.position);
-        }
-
-        function setCanvasCursor() {
-            renderer.domElement.style.cursor = mouseLockMode ? 'grab' : 'grab';
-        }
-
-        function showModelInfo(name, type, verts, faces) {
-            const panel = document.getElementById('info-panel');
-            panel.classList.add('show');
-            document.getElementById('info-name').textContent = name;
-            document.getElementById('info-type').textContent = type;
-            document.getElementById('info-verts').textContent = verts ? verts.toLocaleString() : '-';
-            document.getElementById('info-faces').textContent = faces !== '-' ? (faces || '-').toLocaleString() : '-';
-        }
-
-        // Clear model from scene (called when loading new model)
-        function clearModel() {
-            if (currentModel) {
-                scene.remove(currentModel);
-                currentModel = null;
-                window._currentModel = null;
-            }
-            pointCloudObj = null;
-            window._pointCloudObj = null;
-            document.getElementById('info-panel').classList.remove('show');
-            document.getElementById('point-size-row').style.display = 'none';
-            document.getElementById('point-color-row').style.display = 'none';
-            // Hide welcome screen so user can click canvas to lock pointer
-            document.getElementById('welcome').classList.add('hidden');
-        }
-        window.clearModel = clearModel;
-
-        // Clear model AND show welcome screen (called by "清空" button)
-        window.resetScene = function() {
             clearModel();
-            document.getElementById('welcome').classList.remove('hidden');
-        };
 
-        window.onPointSizeChange = function(val) {
-            const size = val / 100;
-            document.getElementById('pt-size-label').textContent = size.toFixed(2);
-            if (pointCloudObj) {
-                pointCloudObj.material.size = size;
-                pointCloudObj.material.needsUpdate = true;
+            if (isPointCloud) {
+                const material = new THREE.PointsMaterial({
+                    size: 0.05,
+                    vertexColors: geom.attributes.color ? true : false,
+                    sizeAttenuation: true
+                });
+                const points = new THREE.Points(geom, material);
+                scene.add(points);
+                pointCloudObj = points;
+                window._pointCloudObj = points;
+                updateInfoPanel(fileName, 'PLY (点云)', geom.attributes.position.count, '-');
+                document.getElementById('point-size-row').style.display = 'flex';
+                document.getElementById('point-color-row').style.display = 'flex';
+            } else {
+                const material = new THREE.MeshStandardMaterial({ color: 0x6366f1, roughness: 0.5, metalness: 0.3 });
+                const mesh = new THREE.Mesh(geom, material);
+                scene.add(mesh);
+                currentModel = mesh;
+                window._currentModel = mesh;
+                const vertCount = geom.attributes.position.count;
+                const faceCount = geom.index ? geom.index.count / 3 : vertCount / 3;
+                updateInfoPanel(fileName, 'PLY (Mesh)', vertCount, Math.round(faceCount));
             }
-        };
 
-        window.setPointColor = function(mode) {
-            if (!pointCloudObj) return;
-            const geom = pointCloudObj.geometry;
-
-            if (mode === 'default') {
-                if (geom.getAttribute('color')) {
-                    pointCloudObj.material.vertexColors = true;
-                    pointCloudObj.material.color.set(0xffffff);
-                } else {
-                    pointCloudObj.material.color.set(0x4ade80);
-                    pointCloudObj.material.vertexColors = false;
-                }
-            } else if (mode === 'height') {
-                const pos = geom.getAttribute('position');
-                const colors = new Float32Array(pos.count * 3);
-                const ys = [];
-                for (let i = 0; i < pos.count; i++) ys.push(pos.getY(i));
-                const minY = Math.min(...ys), maxY = Math.max(...ys), range = maxY - minY || 1;
-
-                for (let i = 0; i < pos.count; i++) {
-                    const t = (ys[i] - minY) / range;
-                    const c = new THREE.Color().setHSL(0.6 - t * 0.6, 0.8, 0.4 + t * 0.3);
-                    colors[i*3] = c.r;
-                    colors[i*3+1] = c.g;
-                    colors[i*3+2] = c.b;
-                }
-                geom.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-                pointCloudObj.material.vertexColors = true;
-                pointCloudObj.material.color.set(0xffffff);
-            } else if (mode === 'normal') {
-                const pos = geom.getAttribute('position');
-                if (!geom.getAttribute('normal')) geom.computeVertexNormals();
-                const norm = geom.getAttribute('normal');
-                const colors = new Float32Array(pos.count * 3);
-                for (let i = 0; i < pos.count; i++) {
-                    colors[i*3] = (norm.getX(i) + 1) / 2;
-                    colors[i*3+1] = (norm.getY(i) + 1) / 2;
-                    colors[i*3+2] = (norm.getZ(i) + 1) / 2;
-                }
-                geom.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-                pointCloudObj.material.vertexColors = true;
-                pointCloudObj.material.color.set(0xffffff);
-            }
-        };
-
-        // ===================== UI HELPERS =====================
-        function updateMouseModeHint() {
-            const hint = document.getElementById('mouse-mode-hint');
-            if (hint) {
-                hint.textContent = mouseLockMode ? '点击锁定' : '按住左键锁定';
-            }
+            hideLoading();
+            document.getElementById('welcome').classList.add('hidden');
+            console.log('PLY loaded successfully');
         }
 
-        // Show a brief warning toast when a browser shortcut is blocked
-        let warningTimeout = null;
-        function showShortcutWarning(key) {
-            let toast = document.getElementById('shortcut-warning');
-            if (!toast) {
-                toast = document.createElement('div');
-                toast.id = 'shortcut-warning';
-                toast.style.cssText = `
-                    position: fixed;
-                    top: 70px;
-                    left: 50%;
-                    transform: translateX(-50%);
-                    background: rgba(234, 179, 8, 0.9);
-                    color: #000;
-                    padding: 10px 24px;
-                    border-radius: 10px;
-                    font-size: 14px;
-                    font-weight: 600;
-                    z-index: 999;
-                    pointer-events: none;
-                    transition: opacity 0.3s;
-                    box-shadow: 0 4px 16px rgba(0,0,0,0.3);
-                `;
-                document.body.appendChild(toast);
-            }
-            const keyName = key.replace('Key', '').replace('F5', 'F5').replace('F3', 'F3');
-            toast.textContent = `已屏蔽浏览器快捷键 (Ctrl+${keyName})，先按 Esc 释放鼠标以使用浏览器快捷键`;
-            toast.style.opacity = '1';
+        function loadOBJ(buffer, fileName) {
+            console.log('Loading OBJ:', fileName);
+            const loader = new OBJLoader();
+            const text = new TextDecoder().decode(buffer);
+            const model = loader.parse(text);
+            clearModel();
 
-            clearTimeout(warningTimeout);
-            warningTimeout = setTimeout(() => {
-                toast.style.opacity = '0';
-            }, 2500);
+            const box = new THREE.Box3().setFromObject(model);
+            const center = box.getCenter(new THREE.Vector3());
+            const size = box.getSize(new THREE.Vector3());
+            const maxDim = Math.max(size.x, size.y, size.z);
+            const scale = maxDim > 0 ? 5.0 / maxDim : 1;
+            model.position.sub(center);
+            model.scale.setScalar(scale);
+            model.position.y += size.y * scale * 0.5;
+
+            model.traverse((child) => {
+                if (child.isMesh) {
+                    child.material = new THREE.MeshStandardMaterial({ color: 0x6366f1, roughness: 0.5, metalness: 0.3 });
+                    child.castShadow = true;
+                    child.receiveShadow = true;
+                }
+            });
+
+            scene.add(model);
+            currentModel = model;
+            window._currentModel = model;
+
+            let vertCount = 0, faceCount = 0;
+            model.traverse((child) => {
+                if (child.isMesh && child.geometry) {
+                    vertCount += child.geometry.attributes.position.count;
+                    if (child.geometry.index) faceCount += child.geometry.index.count / 3;
+                    else faceCount += child.geometry.attributes.position.count / 3;
+                }
+            });
+            updateInfoPanel(fileName, 'OBJ', vertCount, Math.round(faceCount));
+
+            hideLoading();
+            document.getElementById('welcome').classList.add('hidden');
+            console.log('OBJ loaded successfully');
         }
 
-        // ===================== ANIMATE =====================
-        function animate() {
-            requestAnimationFrame(animate);
-            updateMovement();
+        function loadSTL(buffer, fileName) {
+            console.log('Loading STL:', fileName);
+            const loader = new STLLoader();
+            const geom = loader.parse(buffer);
+            clearModel();
 
-            // FPS counter
-            frameCount++;
-            const now = performance.now();
-            if (now - lastFpsTime > 500) {
-                const fps = Math.round(frameCount / ((now - lastFpsTime) / 1000));
-                document.getElementById('fps').textContent = `${fps} FPS`;
-                frameCount = 0;
-                lastFpsTime = now;
-            }
+            const material = new THREE.MeshStandardMaterial({ color: 0x6366f1, roughness: 0.5, metalness: 0.3 });
+            const mesh = new THREE.Mesh(geom, material);
+            mesh.castShadow = true;
+            mesh.receiveShadow = true;
 
-            renderer.render(scene, camera);
+            const box = new THREE.Box3().setFromObject(mesh);
+            const center = box.getCenter(new THREE.Vector3());
+            const size = box.getSize(new THREE.Vector3());
+            const maxDim = Math.max(size.x, size.y, size.z);
+            const scale = maxDim > 0 ? 5.0 / maxDim : 1;
+            mesh.position.sub(center);
+            mesh.scale.setScalar(scale);
+            mesh.position.y += size.y * scale * 0.5;
+
+            scene.add(mesh);
+            currentModel = mesh;
+            window._currentModel = mesh;
+
+            const vertCount = geom.attributes.position.count;
+            const faceCount = vertCount / 3;
+            updateInfoPanel(fileName, 'STL', vertCount, Math.round(faceCount));
+
+            hideLoading();
+            document.getElementById('welcome').classList.add('hidden');
+            console.log('STL loaded successfully');
         }
 
         // ===================== DEFAULT MODEL AUTO-LOAD =====================
@@ -1090,6 +908,7 @@
                     }
                 } catch (e) {
                     // Manifest not found or timeout, will try direct load
+                    console.log('No manifest found, trying model.glb...');
                 }
 
                 // If no manifest, try to load model.glb directly
@@ -1147,18 +966,158 @@
                 // Don't block user, just log error
                 console.log('Default model not available, showing empty scene');
             }
+        }
+
+        // ===================== HELPERS =====================
+        function clearModel() {
+            if (currentModel) {
+                scene.remove(currentModel);
+                currentModel = null;
+                window._currentModel = null;
+            }
+            if (pointCloudObj) {
+                scene.remove(pointCloudObj);
+                pointCloudObj = null;
+                window._pointCloudObj = null;
+            }
+            document.getElementById('info-panel').classList.remove('show');
+            document.getElementById('point-size-row').style.display = 'none';
+            document.getElementById('point-color-row').style.display = 'none';
+        }
+
+        function resetScene() {
+            clearModel();
+            document.getElementById('welcome').classList.remove('hidden');
+        }
+
+        function updateInfoPanel(name, type, verts, faces) {
+            document.getElementById('info-name').textContent = name;
+            document.getElementById('info-type').textContent = type;
+            document.getElementById('info-verts').textContent = verts.toLocaleString();
+            document.getElementById('info-faces').textContent = faces !== '-' ? faces.toLocaleString() : '-';
+            document.getElementById('info-panel').classList.add('show');
+        }
+
+        function updatePointSize(val) {
+            if (pointCloudObj) {
+                pointCloudObj.material.size = parseFloat(val);
+            }
+        }
+
+        function updatePointColor(mode) {
+            if (!pointCloudObj) return;
+            const geom = pointCloudObj.geometry;
+            const positions = geom.attributes.position;
+            const colors = [];
+
+            if (mode === 'height') {
+                const yMin = -5, yMax = 5;
+                for (let i = 0; i < positions.count; i++) {
+                    const y = (positions.getY(i) - yMin) / (yMax - yMin);
+                    const r = Math.max(0, Math.min(1, 2 * (1 - y)));
+                    const g = Math.max(0, Math.min(1, 2 * (y < 0.5 ? y * 2 : 2 - y * 2)));
+                    const b = Math.max(0, Math.min(1, 2 * (1 - Math.abs(y - 0.5) * 2)));
+                    colors.push(r, g, b);
+                }
+            } else if (mode === 'normal') {
+                if (geom.attributes.normal) {
+                    for (let i = 0; i < positions.count; i++) {
+                        colors.push(
+                            (geom.attributes.normal.getX(i) + 1) / 2,
+                            (geom.attributes.normal.getY(i) + 1) / 2,
+                            (geom.attributes.normal.getZ(i) + 1) / 2
+                        );
+                    }
+                } else {
+                    for (let i = 0; i < positions.count; i++) colors.push(1, 1, 1);
+                }
+            } else {
+                // original - keep existing colors or white
+                if (geom.attributes.color) return;
+                for (let i = 0; i < positions.count; i++) colors.push(1, 1, 1);
+            }
+
+            if (colors.length > 0) {
+                geom.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+                pointCloudObj.material.vertexColors = true;
+                pointCloudObj.material.needsUpdate = true;
+            }
+        }
+
+        function updateMouseModeHint() {
+            const hint = document.getElementById('mouse-mode-hint');
+            if (hint) {
+                hint.textContent = mouseLockMode ? '点击锁定' : '按住左键锁定';
+            }
+        }
+
+        function showShortcutWarning(shortcut) {
+            const toast = document.getElementById('shortcut-warning');
+            toast.textContent = `已屏蔽浏览器快捷键: ${shortcut}`;
+            toast.classList.add('show');
+            setTimeout(() => toast.classList.remove('show'), 2000);
+        }
+
+        // ===================== ANIMATE =====================
+        function animate() {
+            requestAnimationFrame(animate);
+            updateMovement();
+
+            // FPS counter
+            frameCount++;
+            const now = performance.now();
+            if (now - lastFpsTime >= 1000) {
+                document.getElementById('fps-counter').textContent = `FPS: ${frameCount}`;
+                frameCount = 0;
+                lastFpsTime = now;
+            }
+
+            renderer.render(scene, camera);
+        }
+
         // ===================== START =====================
+        console.log('Starting 3D Model Viewer...');
         init();
         lastFpsTime = performance.now();
         updateMouseModeHint();
         renderer.domElement.style.cursor = 'grab';
 
-        // Try to load default model, show welcome if none
+        // Try to load default model
         loadDefaultModel();
 
         // Expose functions called from HTML inline event handlers (onclick / oninput)
         window.loadFromUrl = loadFromUrl;
         window.resetScene = resetScene;
+
+        function loadFromUrl() {
+            const url = document.getElementById('url-input').value.trim();
+            if (!url) return;
+            console.log('Loading from URL:', url);
+            showLoading('从 URL 加载模型...');
+            fetch(url)
+                .then(resp => {
+                    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                    return resp.arrayBuffer();
+                })
+                .then(buf => {
+                    const name = url.split('/').pop().toLowerCase();
+                    if (name.endsWith('.glb') || name.endsWith('.gltf')) {
+                        loadGLTF(buf, name);
+                    } else if (name.endsWith('.ply')) {
+                        loadPLY(buf, name);
+                    } else if (name.endsWith('.obj')) {
+                        loadOBJ(buf, name);
+                    } else if (name.endsWith('.stl')) {
+                        loadSTL(buf, name);
+                    } else {
+                        loadGLTF(buf, name);
+                    }
+                })
+                .catch(err => {
+                    hideLoading();
+                    alert('URL 加载失败: ' + err.message);
+                });
+        }
     </script>
 </body>
 </html>
