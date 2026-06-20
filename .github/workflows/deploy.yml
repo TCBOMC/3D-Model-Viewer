@@ -5,7 +5,6 @@ on:
     branches: [main]
     paths:
       - 'index.html'
-      - 'config.json'
       - 'default-models/**'
       - '.github/workflows/deploy.yml'
   workflow_dispatch:  # Allow manual trigger
@@ -28,6 +27,30 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Generate model manifest
+        run: |
+          cd default-models
+          echo '{"files":[]}' > manifest.json.tmp
+          files=$(ls -1 *.glb *.gltf *.ply *.obj *.stl 2>/dev/null || echo "")
+          if [ -n "$files" ]; then
+            echo '{"files":[' > manifest.json
+            first=true
+            for f in $files; do
+              if [ "$first" = true ]; then
+                first=false
+              else
+                echo "," >> manifest.json
+              fi
+              echo -n "{\"name\":\"$f\",\"path\":\"./default-models/$f\"}" >> manifest.json
+            done
+            echo ']}' >> manifest.json
+          else
+            echo '{"files":[]}' > manifest.json
+          fi
+          cat manifest.json
+          mv manifest.json ../default-models/manifest.json
+        continue-on-error: true
 
       - name: Setup Pages
         uses: actions/configure-pages@v4
