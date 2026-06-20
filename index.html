@@ -269,7 +269,34 @@
         #loading-text {
             font-size: 15px;
             color: rgba(255,255,255,0.7);
+            margin-bottom: 16px;
         }
+
+        #loading-progress-wrap {
+            width: 280px;
+            height: 6px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 3px;
+            overflow: hidden;
+            display: none;
+        }
+        #loading-progress-wrap.show { display: block; }
+
+        #loading-progress-bar {
+            height: 100%;
+            width: 0%;
+            background: linear-gradient(90deg, #6366f1, #8b5cf6);
+            border-radius: 3px;
+            transition: width 0.15s ease;
+        }
+
+        #loading-progress-text {
+            font-size: 12px;
+            color: rgba(255,255,255,0.4);
+            margin-top: 8px;
+            display: none;
+        }
+        #loading-progress-text.show { display: block; }
 
         /* Drop overlay */
         #drop-overlay {
@@ -427,6 +454,10 @@
     <div id="loading">
         <div class="spinner"></div>
         <p id="loading-text">加载中...</p>
+        <div id="loading-progress-wrap">
+            <div id="loading-progress-bar"></div>
+        </div>
+        <p id="loading-progress-text"></p>
     </div>
 
     <!-- Drop overlay -->
@@ -693,10 +724,59 @@
         // ===================== LOADING =====================
         function showLoading(msg) {
             document.getElementById('loading-text').textContent = msg || '加载中...';
+            document.getElementById('loading-progress-wrap').classList.remove('show');
+            document.getElementById('loading-progress-bar').style.width = '0%';
+            document.getElementById('loading-progress-text').classList.remove('show');
             document.getElementById('loading').classList.add('show');
         }
         function hideLoading() {
             document.getElementById('loading').classList.remove('show');
+        }
+
+        // Fetch a URL and track download progress via ReadableStream
+        // Returns { buffer: ArrayBuffer }
+        async function fetchWithProgress(url, onProgress) {
+            const resp = await fetch(url);
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+
+            const contentLength = resp.headers.get('content-length');
+            const totalBytes = contentLength ? parseInt(contentLength, 10) : 0;
+
+            // No content-length or no stream support: fall back to simple arrayBuffer
+            if (!totalBytes || !resp.body) {
+                onProgress(0, 0);  // indicate indeterminate
+                const buf = await resp.arrayBuffer();
+                onProgress(buf.byteLength, buf.byteLength);
+                return { buffer: buf, hasProgress: false };
+            }
+
+            const reader = resp.body.getReader();
+            const chunks = [];
+            let receivedBytes = 0;
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                chunks.push(value);
+                receivedBytes += value.byteLength;
+                onProgress(receivedBytes, totalBytes);
+            }
+
+            // Merge chunks into a single Uint8Array then ArrayBuffer
+            const merged = new Uint8Array(receivedBytes);
+            let offset = 0;
+            for (const chunk of chunks) {
+                merged.set(chunk, offset);
+                offset += chunk.byteLength;
+            }
+
+            return { buffer: merged.buffer, hasProgress: true };
+        }
+
+        function formatBytes(bytes) {
+            if (bytes < 1024) return bytes + ' B';
+            if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+            return (bytes / (1024 * 1024)).toFixed(2) + ' MB';
         }
 
         function loadLocalFile(file) {
@@ -886,7 +966,6 @@
 
         // ===================== DEFAULT MODEL AUTO-LOAD =====================
         async function loadDefaultModel() {
-            // Try these paths in order; stop at the first one that exists
             const candidates = [
                 './default-models/manifest.json',
                 './default-models/model.glb',
@@ -897,11 +976,11 @@
             ];
 
             document.getElementById('welcome').classList.add('hidden');
-            showLoading('检查默认模型...');
+            showLoading('\u68C0\u67E5\u9ED8\u8BA4\u6A21\u578B...');
 
             let modelPath = null;
 
-            // Step 1: try manifest.json to find the first model
+            // Step 1: try manifest.json
             try {
                 const manifestResp = await fetch('./default-models/manifest.json?t=' + Date.now());
                 if (manifestResp.ok) {
@@ -911,45 +990,44 @@
                         modelPath = firstFile.path || './default-models/' + (firstFile.name || firstFile);
                     }
                 }
-            } catch (e) {
-                // manifest not available, will try candidates below
-            }
+            } catch (e) {}
 
-            // Step 2: if no manifest, probe candidates one by one
+            // Step 2: probe candidates
             if (!modelPath) {
-                for (const candidate of candidates.slice(1)) {  // skip manifest.json
+                for (const candidate of candidates.slice(1)) {
                     try {
                         const resp = await fetch(candidate, { method: 'HEAD' });
-                        if (resp.ok) {
-                            modelPath = candidate;
-                            break;
-                        }
-                    } catch (e) {
-                        // keep trying
-                    }
+                        if (resp.ok) { modelPath = candidate; break; }
+                    } catch (e) {}
                 }
             }
 
             if (!modelPath) {
-                // No default model found
                 hideLoading();
                 console.log('No default model found, showing empty scene');
                 return;
             }
 
-            // Step 3: load the model
+            // Step 3: download with progress
             const displayName = modelPath.split('/').pop().replace(/\.[^/.]+$/, '');
-            showLoading(`加载默认模型: ${displayName}...`);
+            showLoading(`\u52A0\u8F7D\u9ED8\u8BA4\u6A21\u578B: ${displayName}`);
+
+            const progressWrap = document.getElementById('loading-progress-wrap');
+            const progressBar = document.getElementById('loading-progress-bar');
+            const progressText = document.getElementById('loading-progress-text');
+            progressWrap.classList.add('show');
+            progressText.classList.add('show');
 
             try {
-                const modelResp = await fetch(modelPath);
-                if (!modelResp.ok) {
-                    hideLoading();
-                    console.log('Default model request failed (' + modelResp.status + '), showing empty scene');
-                    return;
-                }
+                const { buffer: buf } = await fetchWithProgress(modelPath, (received, total) => {
+                    if (total > 0) {
+                        progressBar.style.width = Math.round((received / total) * 100) + '%';
+                        progressText.textContent = `${formatBytes(received)} / ${formatBytes(total)}`;
+                    } else {
+                        progressText.textContent = formatBytes(received);
+                    }
+                });
 
-                const buf = await modelResp.arrayBuffer();
                 if (buf.byteLength < 100) {
                     hideLoading();
                     console.log('Default model file too small, showing empty scene');
@@ -1095,35 +1173,45 @@
         window.loadFromUrl = loadFromUrl;
         window.resetScene = resetScene;
 
-        function loadFromUrl() {
+        async function loadFromUrl() {
             const url = document.getElementById('url-input').value.trim();
             if (!url) return;
             console.log('Loading from URL:', url);
-            showLoading('从 URL 加载模型...');
-            fetch(url)
-                .then(resp => {
-                    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-                    return resp.arrayBuffer();
-                })
-                .then(buf => {
-                    const name = url.split('/').pop().toLowerCase();
-                    if (name.endsWith('.glb') || name.endsWith('.gltf')) {
-                        loadGLTF(buf, name);
-                    } else if (name.endsWith('.ply')) {
-                        loadPLY(buf, name);
-                    } else if (name.endsWith('.obj')) {
-                        loadOBJ(buf, name);
-                    } else if (name.endsWith('.stl')) {
-                        loadSTL(buf, name);
+            showLoading('\u4ECE URL \u52A0\u8F7D\u6A21\u578B...');
+
+            const progressWrap = document.getElementById('loading-progress-wrap');
+            const progressBar = document.getElementById('loading-progress-bar');
+            const progressText = document.getElementById('loading-progress-text');
+            progressWrap.classList.add('show');
+            progressText.classList.add('show');
+
+            try {
+                const { buffer: buf } = await fetchWithProgress(url, (received, total) => {
+                    if (total > 0) {
+                        progressBar.style.width = Math.round((received / total) * 100) + '%';
+                        progressText.textContent = `${formatBytes(received)} / ${formatBytes(total)}`;
                     } else {
-                        loadGLTF(buf, name);
+                        progressText.textContent = formatBytes(received);
                     }
-                })
-                .catch(err => {
-                    hideLoading();
-                    alert('URL 加载失败: ' + err.message);
                 });
+                const name = url.split('/').pop().toLowerCase();
+                if (name.endsWith('.glb') || name.endsWith('.gltf')) {
+                    loadGLTF(buf, name);
+                } else if (name.endsWith('.ply')) {
+                    loadPLY(buf, name);
+                } else if (name.endsWith('.obj')) {
+                    loadOBJ(buf, name);
+                } else if (name.endsWith('.stl')) {
+                    loadSTL(buf, name);
+                } else {
+                    loadGLTF(buf, name);
+                }
+            } catch (err) {
+                hideLoading();
+                alert('URL \u52A0\u8F7D\u5931\u8D25: ' + err.message);
+            }
         }
+
     </script>
 </body>
 </html>
