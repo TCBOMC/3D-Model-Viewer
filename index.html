@@ -1312,7 +1312,7 @@
 
             try {
                 const { buffer: buf, fromCache } = await fetchWithCache(modelPath, (received, total) => {
-                    if (fromCache) return;
+                    // Progress callback: only called during download, not from cache
                     if (total > 0) {
                         progressBar.style.width = Math.round((received / total) * 100) + '%';
                         progressText.textContent = `${formatBytes(received)} / ${formatBytes(total)}`;
@@ -1320,6 +1320,7 @@
                         progressText.textContent = formatBytes(received);
                     }
                 });
+                // After fetchWithCache returns
                 if (fromCache) {
                     progressText.textContent = `已缓存 ${formatBytes(buf.byteLength)}`;
                     progressBar.style.width = '100%';
@@ -1484,7 +1485,7 @@
 
             try {
                 const { buffer: buf, fromCache } = await fetchWithCache(url, (received, total) => {
-                    if (fromCache) return;
+                    // Progress callback: only called during download, not from cache
                     if (total > 0) {
                         progressBar.style.width = Math.round((received / total) * 100) + '%';
                         progressText.textContent = `${formatBytes(received)} / ${formatBytes(total)}`;
@@ -1492,6 +1493,7 @@
                         progressText.textContent = formatBytes(received);
                     }
                 });
+                // After fetchWithCache returns
                 if (fromCache) {
                     progressText.textContent = `已缓存 ${formatBytes(buf.byteLength)}`;
                     progressBar.style.width = '100%';
