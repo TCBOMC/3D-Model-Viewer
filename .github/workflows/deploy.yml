@@ -28,16 +28,50 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Generate model manifest & gzip compressed versions
+      - name: Generate default model descriptor & gzip compressed versions
         run: |
           cd default-models
 
           # Enable nullglob so *.ext expands to empty string when no match
           shopt -s nullglob
 
-          # Generate .gz compressed versions to save bandwidth
+          # -----------------------------------------------------------------
+          # 1. Pick the first non-generated file in the folder as the default
+          #    model. The webpage only reads the fixed descriptor file below,
+          #    so it never hard-codes any model name.
+          # -----------------------------------------------------------------
+          first_file=""
+          for f in *; do
+            if [ -f "$f" ] \
+               && [ "$f" != "manifest.json" ] \
+               && [ "$f" != "default-model.json" ] \
+               && [ "$f" != "model.json" ] \
+               && [[ "$f" != *.gz ]]; then
+              first_file="$f"
+              break
+            fi
+          done
+
+          if [ -n "$first_file" ]; then
+            if [[ "$first_file" == *.json ]]; then
+              # A JSON descriptor already describes the default model; reuse it.
+              cp "$first_file" default-model.json
+            else
+              # Generate a JSON descriptor pointing at the first model file.
+              echo "{\"name\":\"$first_file\",\"url\":\"./default-models/$first_file\"}" > default-model.json
+            fi
+            echo "Default model descriptor:"
+            cat default-model.json
+          else
+            rm -f default-model.json
+            echo "No default model file found"
+          fi
+
+          # -----------------------------------------------------------------
+          # 2. Generate .gz compressed versions of all model files to save bandwidth
+          # -----------------------------------------------------------------
           echo "Generating .gz compressed models..."
-          for ext in glb gltf ply obj stl; do
+          for ext in glb gltf ply obj stl fbx; do
             for f in *.${ext}; do
               if [ -f "$f" ]; then
                 # Always regenerate .gz to keep it up to date
@@ -47,11 +81,12 @@ jobs:
             done
           done
 
-          # Generate manifest.json with both original and .gz info
-          # Collect all model files into a temp list
+          # -----------------------------------------------------------------
+          # 3. Generate manifest.json with both original and .gz info
+          # -----------------------------------------------------------------
           echo '{"files":[' > manifest.json
           first=true
-          for ext in glb gltf ply obj stl; do
+          for ext in glb gltf ply obj stl fbx; do
             for f in *.${ext}; do
               if [ -f "$f" ]; then
                 if [ "$first" = true ]; then

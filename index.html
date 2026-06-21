@@ -1422,84 +1422,25 @@
 
         // ===================== DEFAULT MODEL AUTO-LOAD =====================
         async function loadDefaultModel() {
-            const candidates = [
-                './default-models/model.json',
-                './default-models/model.glb',
-                './default-models/model.gltf',
-                './default-models/model.ply',
-                './default-models/model.obj',
-                './default-models/model.stl',
-                './default-models/model.fbx',
-            ];
-
             document.getElementById('welcome').classList.add('hidden');
             showLoading('\u68C0\u67E5\u9ED8\u8BA4\u6A21\u578B...');
 
-            let jsonData = null;
-            let modelPath = null;
-
-            // Step 1: try model.json (JSON model descriptor)
+            // The workflow picks the first file in default-models and writes a
+            // fixed descriptor (default-model.json). The webpage never hard-codes
+            // any model name; it only reads this descriptor.
             try {
-                const jsonResp = await fetch('./default-models/model.json?t=' + Date.now());
-                if (jsonResp.ok) {
-                    jsonData = await jsonResp.json();
-                }
-            } catch (e) {}
-
-            if (jsonData) {
-                try {
+                const resp = await fetch('./default-models/default-model.json?t=' + Date.now());
+                if (resp.ok) {
+                    const jsonData = await resp.json();
                     await loadJsonModel(jsonData, 'default');
                     return;
-                } catch (err) {
-                    console.log('Default JSON model failed, falling back to direct files:', err.message);
                 }
+            } catch (e) {
+                console.log('Default model descriptor not available:', e.message);
             }
 
-            // Step 2: probe direct model candidates
-            if (!modelPath) {
-                for (const candidate of candidates.slice(1)) {
-                    try {
-                        const resp = await fetch(candidate, { method: 'HEAD' });
-                        if (resp.ok) { modelPath = candidate; break; }
-                    } catch (e) {}
-                }
-            }
-
-            if (!modelPath) {
-                hideLoading();
-                console.log('No default model found, showing empty scene');
-                return;
-            }
-
-            // Step 3: download direct model with progress and cache
-            const displayName = modelPath.split('/').pop().replace(/\.[^/.]+$/, '');
-            try {
-                const { buffer: buf, fromCache } = await downloadModel(modelPath, displayName, CACHE_STORE_DEFAULT, { name: displayName });
-
-                if (buf.byteLength < 100) {
-                    hideLoading();
-                    console.log('Default model file too small, showing empty scene');
-                    return;
-                }
-
-                const name = modelPath.split('/').pop().toLowerCase();
-                if (name.endsWith('.glb') || name.endsWith('.gltf')) {
-                    loadGLTF(buf, displayName);
-                } else if (name.endsWith('.ply')) {
-                    loadPLY(buf, displayName);
-                } else if (name.endsWith('.obj')) {
-                    loadOBJ(buf, displayName);
-                } else if (name.endsWith('.stl')) {
-                    loadSTL(buf, displayName);
-                } else if (name.endsWith('.fbx')) {
-                    loadFBX(buf, displayName);
-                } else {
-                    loadGLTF(buf, displayName);
-                }
-            } catch (err) {
-                hideLoading();
-                console.log('Default model load failed:', err.message);
-            }
+            hideLoading();
+            console.log('No default model descriptor, showing empty scene');
         }
 
         // ===================== HELPERS =====================
