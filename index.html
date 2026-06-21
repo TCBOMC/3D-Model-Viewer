@@ -854,8 +854,8 @@ function updateCameraLocalQuat() {
         const isMoving = moveState.f || moveState.b || moveState.l || moveState.r || moveState.u || moveState.d;
         const rollSpeed = 2.0;
         let rollDelta = 0;
-        if (moveState.q) rollDelta += rollSpeed * dt;
-        if (moveState.e) rollDelta -= rollSpeed * dt;
+        if (moveState.q) rollDelta -= rollSpeed * dt;  // Q: 逆时针滚转（反向）
+        if (moveState.e) rollDelta += rollSpeed * dt;  // E: 顺时针滚转（反向）
         const hasInput = isMoving || rollDelta !== 0;
     
         // 3. 如果有输入 → 烘焙：将当前世界旋转赋给 body，局部清零
