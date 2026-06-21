@@ -485,7 +485,7 @@
     <div id="shortcut-warning">已屏蔽浏览器快捷键</div>
 
     <!-- File input -->
-    <input id="file-input" type="file" accept=".glb,.gltf,.ply,.obj,.stl" />
+    <input id="file-input" type="file" accept=".glb,.gltf,.ply,.obj,.stl,.fbx,.json" />
 
     <!-- Three.js + Loaders via CDN (ES Module) -->
     <script type="importmap">
@@ -503,6 +503,7 @@
         import { PLYLoader } from 'three/addons/loaders/PLYLoader.js';
         import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
         import { STLLoader } from 'three/addons/loaders/STLLoader.js';
+        import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
 
         // ===================== GLOBALS =====================
         let scene, camera, renderer, controls;
@@ -760,16 +761,20 @@
 
         // ===================== CACHE (IndexedDB) =====================
         const CACHE_DB_NAME = '3d-model-viewer-cache';
-        const CACHE_DB_VERSION = 1;
-        const CACHE_STORE_NAME = 'models';
+        const CACHE_DB_VERSION = 2;
+        const CACHE_STORE_DEFAULT = 'default-models';
+        const CACHE_STORE_JSON = 'json-models';
 
         function openCacheDB() {
             return new Promise((resolve, reject) => {
                 const req = indexedDB.open(CACHE_DB_NAME, CACHE_DB_VERSION);
                 req.onupgradeneeded = (e) => {
                     const db = e.target.result;
-                    if (!db.objectStoreNames.contains(CACHE_STORE_NAME)) {
-                        db.createObjectStore(CACHE_STORE_NAME, { keyPath: 'url' });
+                    if (!db.objectStoreNames.contains(CACHE_STORE_DEFAULT)) {
+                        db.createObjectStore(CACHE_STORE_DEFAULT, { keyPath: 'url' });
+                    }
+                    if (!db.objectStoreNames.contains(CACHE_STORE_JSON)) {
+                        db.createObjectStore(CACHE_STORE_JSON, { keyPath: 'url' });
                     }
                 };
                 req.onsuccess = () => resolve(req.result);
@@ -777,11 +782,11 @@
             });
         }
 
-        async function getCachedModel(url) {
+        async function getCachedModel(url, storeName) {
             const db = await openCacheDB();
             return new Promise((resolve) => {
-                const tx = db.transaction(CACHE_STORE_NAME, 'readonly');
-                const store = tx.objectStore(CACHE_STORE_NAME);
+                const tx = db.transaction(storeName, 'readonly');
+                const store = tx.objectStore(storeName);
                 const req = store.get(url);
                 req.onsuccess = () => {
                     const result = req.result;
@@ -791,7 +796,7 @@
                         if (buf.byteLength !== undefined && buf.buffer) {
                             buf = buf.buffer;  // Uint8Array -> ArrayBuffer
                         }
-                        resolve(buf);
+                        resolve({ buffer: buf, metadata: result });
                     } else {
                         resolve(null);
                     }
@@ -800,16 +805,18 @@
             });
         }
 
-        async function setCachedModel(url, arrayBuffer, etag) {
+        async function setCachedModel(url, arrayBuffer, storeName, metadata = {}) {
             const db = await openCacheDB();
             return new Promise((resolve) => {
-                const tx = db.transaction(CACHE_STORE_NAME, 'readwrite');
-                const store = tx.objectStore(CACHE_STORE_NAME);
+                const tx = db.transaction(storeName, 'readwrite');
+                const store = tx.objectStore(storeName);
                 store.put({
                     url: url,
                     buffer: arrayBuffer,
-                    etag: etag || '',
-                    timestamp: Date.now()
+                    etag: metadata.etag || '',
+                    timestamp: Date.now(),
+                    name: metadata.name || '',
+                    size: arrayBuffer.byteLength
                 });
                 tx.oncomplete = () => resolve();
                 tx.onerror = () => resolve();
@@ -830,11 +837,15 @@
         async function clearModelCache() {
             const db = await openCacheDB();
             return new Promise((resolve) => {
-                const tx = db.transaction(CACHE_STORE_NAME, 'readwrite');
-                const store = tx.objectStore(CACHE_STORE_NAME);
-                store.clear();
-                tx.oncomplete = () => resolve();
-                tx.onerror = () => resolve();
+                [CACHE_STORE_DEFAULT, CACHE_STORE_JSON].forEach((storeName) => {
+                    if (db.objectStoreNames.contains(storeName)) {
+                        const tx = db.transaction(storeName, 'readwrite');
+                        const store = tx.objectStore(storeName);
+                        store.clear();
+                    }
+                });
+                // Give transactions a moment to complete; resolve is best-effort
+                setTimeout(resolve, 100);
             });
         }
 
@@ -965,11 +976,14 @@
         // Fetch with IndexedDB cache + progress
         // onProgress(received, total) - total=0 means indeterminate
         // Returns { buffer: ArrayBuffer, fromCache: boolean }
-        async function fetchWithCache(url, onProgress) {
+        async function fetchWithCache(url, onProgress, options = {}) {
+            const storeName = options.storeName || CACHE_STORE_DEFAULT;
+            const metadata = options.metadata || {};
+
             // Step 1: try IndexedDB cache first
-            const cachedBuf = await getCachedModel(url);
-            if (cachedBuf) {
-                onProgress(cachedBuf.byteLength, cachedBuf.byteLength);
+            const cached = await getCachedModel(url, storeName);
+            if (cached && cached.buffer) {
+                onProgress(cached.buffer.byteLength, cached.buffer.byteLength);
                 // Check ETag in background for cache invalidation
                 fetch(url, { method: 'HEAD' }).then(resp => {
                     if (resp.ok) {
@@ -977,7 +991,7 @@
                         checkModelETag(url, etag).catch(() => {});
                     }
                 }).catch(() => {});
-                return { buffer: cachedBuf, fromCache: true };
+                return { buffer: cached.buffer, fromCache: true };
             }
 
             // Step 2: get uncompressed file size for accurate progress
@@ -1049,9 +1063,92 @@
 
             // Step 5: save to IndexedDB cache (store decompressed)
             const etag = '';
-            setCachedModel(url, buf, etag);
+            setCachedModel(url, buf, storeName, { ...metadata, etag });
 
             return { buffer: buf, fromCache: false };
+        }
+
+        // Unified model download with loading UI and cache
+        async function downloadModel(url, displayName, storeName, metadata = {}) {
+            showLoading(`下载模型: ${displayName || url.split('/').pop()}`);
+            const progressWrap = document.getElementById('loading-progress-wrap');
+            const progressBar = document.getElementById('loading-progress-bar');
+            const progressText = document.getElementById('loading-progress-text');
+            progressWrap.classList.add('show');
+            progressText.classList.add('show');
+
+            try {
+                const { buffer, fromCache } = await fetchWithCache(url, (received, total) => {
+                    if (total > 0) {
+                        progressBar.style.width = Math.round((received / total) * 100) + '%';
+                        progressText.textContent = `${formatBytes(received)} / ${formatBytes(total)}`;
+                    } else {
+                        progressText.textContent = formatBytes(received);
+                    }
+                }, { storeName, metadata });
+
+                if (fromCache) {
+                    progressText.textContent = `已缓存 ${formatBytes(buffer.byteLength)}`;
+                    progressBar.style.width = '100%';
+                }
+                return { buffer, fromCache };
+            } catch (err) {
+                hideLoading();
+                throw err;
+            }
+        }
+
+        // Parse JSON model descriptor(s). Accepts:
+        // - {name, url}
+        // - {files: [{name, url}, ...]}
+        // - [{name, url}, ...]
+        function parseModelJson(jsonData) {
+            let models = [];
+            if (Array.isArray(jsonData)) {
+                models = jsonData;
+            } else if (jsonData && jsonData.files && Array.isArray(jsonData.files)) {
+                models = jsonData.files;
+            } else if (jsonData && jsonData.url) {
+                models = [jsonData];
+            }
+            return models.filter(m => m && m.url);
+        }
+
+        // Load the first model described by a JSON object
+        async function loadJsonModel(jsonData, source = 'default') {
+            const models = parseModelJson(jsonData);
+            if (models.length === 0) {
+                hideLoading();
+                alert('JSON 中没有找到有效的模型 URL');
+                return;
+            }
+            const entry = models[0];
+            const url = entry.url;
+            const name = entry.name || url.split('/').pop();
+            const storeName = source === 'default' ? CACHE_STORE_DEFAULT : CACHE_STORE_JSON;
+
+            const { buffer } = await downloadModel(url, name, storeName, { name });
+
+            if (buffer.byteLength < 100) {
+                hideLoading();
+                alert('模型文件太小，可能下载失败');
+                return;
+            }
+
+            const extName = url.split('/').pop().toLowerCase();
+            if (extName.endsWith('.glb') || extName.endsWith('.gltf')) {
+                loadGLTF(buffer, name);
+            } else if (extName.endsWith('.ply')) {
+                loadPLY(buffer, name);
+            } else if (extName.endsWith('.obj')) {
+                loadOBJ(buffer, name);
+            } else if (extName.endsWith('.stl')) {
+                loadSTL(buffer, name);
+            } else if (extName.endsWith('.fbx')) {
+                loadFBX(buffer, name);
+            } else {
+                loadGLTF(buffer, name);
+            }
         }
 
         // ===================== LOADING =====================
@@ -1075,11 +1172,28 @@
 
         function loadLocalFile(file) {
             console.log('Loading local file:', file.name);
+            const name = file.name.toLowerCase();
+
+            if (name.endsWith('.json')) {
+                const reader = new FileReader();
+                showLoading(`读取配置 ${file.name}...`);
+                reader.onload = (e) => {
+                    try {
+                        const json = JSON.parse(e.target.result);
+                        loadJsonModel(json, 'local');
+                    } catch (err) {
+                        hideLoading();
+                        alert('JSON 解析失败: ' + err.message);
+                    }
+                };
+                reader.readAsText(file);
+                return;
+            }
+
             const reader = new FileReader();
             showLoading(`加载 ${file.name}...`);
             reader.onload = (e) => {
                 const buf = e.target.result;
-                const name = file.name.toLowerCase();
                 if (name.endsWith('.glb') || name.endsWith('.gltf')) {
                     loadGLTF(buf, file.name);
                 } else if (name.endsWith('.ply')) {
@@ -1088,6 +1202,8 @@
                     loadOBJ(buf, file.name);
                 } else if (name.endsWith('.stl')) {
                     loadSTL(buf, file.name);
+                } else if (name.endsWith('.fbx')) {
+                    loadFBX(buf, file.name);
                 } else {
                     loadGLTF(buf, file.name);
                 }
@@ -1258,35 +1374,88 @@
             console.log('STL loaded successfully');
         }
 
+        function loadFBX(buffer, fileName) {
+            console.log('Loading FBX:', fileName);
+            const loader = new FBXLoader();
+            loader.parse(buffer, '', (model) => {
+                clearModel();
+
+                const box = new THREE.Box3().setFromObject(model);
+                const center = box.getCenter(new THREE.Vector3());
+                const size = box.getSize(new THREE.Vector3());
+                const maxDim = Math.max(size.x, size.y, size.z);
+                const scale = maxDim > 0 ? 5.0 / maxDim : 1;
+                model.position.sub(center);
+                model.scale.setScalar(scale);
+                model.position.y += size.y * scale * 0.5;
+
+                model.traverse((child) => {
+                    if (child.isMesh) {
+                        child.castShadow = true;
+                        child.receiveShadow = true;
+                    }
+                });
+
+                scene.add(model);
+                currentModel = model;
+                window._currentModel = model;
+
+                let vertCount = 0, faceCount = 0;
+                model.traverse((child) => {
+                    if (child.isMesh && child.geometry) {
+                        vertCount += child.geometry.attributes.position.count;
+                        if (child.geometry.index) faceCount += child.geometry.index.count / 3;
+                        else faceCount += child.geometry.attributes.position.count / 3;
+                    }
+                });
+                updateInfoPanel(fileName, 'FBX', vertCount, Math.round(faceCount));
+
+                hideLoading();
+                document.getElementById('welcome').classList.add('hidden');
+                console.log('FBX loaded successfully');
+            }, (err) => {
+                console.error('FBX load error:', err);
+                hideLoading();
+                alert('模型加载失败: ' + err.message);
+            });
+        }
+
         // ===================== DEFAULT MODEL AUTO-LOAD =====================
         async function loadDefaultModel() {
             const candidates = [
-                './default-models/manifest.json',
+                './default-models/model.json',
                 './default-models/model.glb',
                 './default-models/model.gltf',
                 './default-models/model.ply',
                 './default-models/model.obj',
                 './default-models/model.stl',
+                './default-models/model.fbx',
             ];
 
             document.getElementById('welcome').classList.add('hidden');
             showLoading('\u68C0\u67E5\u9ED8\u8BA4\u6A21\u578B...');
 
+            let jsonData = null;
             let modelPath = null;
 
-            // Step 1: try manifest.json
+            // Step 1: try model.json (JSON model descriptor)
             try {
-                const manifestResp = await fetch('./default-models/manifest.json?t=' + Date.now());
-                if (manifestResp.ok) {
-                    const manifest = await manifestResp.json();
-                    if (manifest.files && manifest.files.length > 0) {
-                        const firstFile = manifest.files[0];
-                        modelPath = firstFile.path || './default-models/' + (firstFile.name || firstFile);
-                    }
+                const jsonResp = await fetch('./default-models/model.json?t=' + Date.now());
+                if (jsonResp.ok) {
+                    jsonData = await jsonResp.json();
                 }
             } catch (e) {}
 
-            // Step 2: probe candidates
+            if (jsonData) {
+                try {
+                    await loadJsonModel(jsonData, 'default');
+                    return;
+                } catch (err) {
+                    console.log('Default JSON model failed, falling back to direct files:', err.message);
+                }
+            }
+
+            // Step 2: probe direct model candidates
             if (!modelPath) {
                 for (const candidate of candidates.slice(1)) {
                     try {
@@ -1302,31 +1471,10 @@
                 return;
             }
 
-            // Step 3: download with progress
+            // Step 3: download direct model with progress and cache
             const displayName = modelPath.split('/').pop().replace(/\.[^/.]+$/, '');
-            showLoading(`\u52A0\u8F7D\u9ED8\u8BA4\u6A21\u578B: ${displayName}`);
-
-            const progressWrap = document.getElementById('loading-progress-wrap');
-            const progressBar = document.getElementById('loading-progress-bar');
-            const progressText = document.getElementById('loading-progress-text');
-            progressWrap.classList.add('show');
-            progressText.classList.add('show');
-
             try {
-                const { buffer: buf, fromCache } = await fetchWithCache(modelPath, (received, total) => {
-                    // Progress callback: only called during download, not from cache
-                    if (total > 0) {
-                        progressBar.style.width = Math.round((received / total) * 100) + '%';
-                        progressText.textContent = `${formatBytes(received)} / ${formatBytes(total)}`;
-                    } else {
-                        progressText.textContent = formatBytes(received);
-                    }
-                });
-                // After fetchWithCache returns
-                if (fromCache) {
-                    progressText.textContent = `已缓存 ${formatBytes(buf.byteLength)}`;
-                    progressBar.style.width = '100%';
-                }
+                const { buffer: buf, fromCache } = await downloadModel(modelPath, displayName, CACHE_STORE_DEFAULT, { name: displayName });
 
                 if (buf.byteLength < 100) {
                     hideLoading();
@@ -1343,6 +1491,8 @@
                     loadOBJ(buf, displayName);
                 } else if (name.endsWith('.stl')) {
                     loadSTL(buf, displayName);
+                } else if (name.endsWith('.fbx')) {
+                    loadFBX(buf, displayName);
                 } else {
                     loadGLTF(buf, displayName);
                 }
@@ -1478,44 +1628,37 @@
             const url = document.getElementById('url-input').value.trim();
             if (!url) return;
             console.log('Loading from URL:', url);
-            showLoading('\u4ECE URL \u52A0\u8F7D\u6A21\u578B...');
-
-            const progressWrap = document.getElementById('loading-progress-wrap');
-            const progressBar = document.getElementById('loading-progress-bar');
-            const progressText = document.getElementById('loading-progress-text');
-            progressWrap.classList.add('show');
-            progressText.classList.add('show');
 
             try {
-                const { buffer: buf, fromCache } = await fetchWithCache(url, (received, total) => {
-                    // Progress callback: only called during download, not from cache
-                    if (total > 0) {
-                        progressBar.style.width = Math.round((received / total) * 100) + '%';
-                        progressText.textContent = `${formatBytes(received)} / ${formatBytes(total)}`;
-                    } else {
-                        progressText.textContent = formatBytes(received);
-                    }
-                });
-                // After fetchWithCache returns
-                if (fromCache) {
-                    progressText.textContent = `已缓存 ${formatBytes(buf.byteLength)}`;
-                    progressBar.style.width = '100%';
+                if (url.toLowerCase().endsWith('.json')) {
+                    showLoading('从 URL 读取配置...');
+                    const resp = await fetch(url);
+                    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                    const json = await resp.json();
+                    await loadJsonModel(json, 'local');
+                    return;
                 }
-                const name = url.split('/').pop().toLowerCase();
-                if (name.endsWith('.glb') || name.endsWith('.gltf')) {
+
+                const name = url.split('/').pop();
+                const { buffer: buf, fromCache } = await downloadModel(url, name, CACHE_STORE_JSON, { name });
+
+                const extName = name.toLowerCase();
+                if (extName.endsWith('.glb') || extName.endsWith('.gltf')) {
                     loadGLTF(buf, name);
-                } else if (name.endsWith('.ply')) {
+                } else if (extName.endsWith('.ply')) {
                     loadPLY(buf, name);
-                } else if (name.endsWith('.obj')) {
+                } else if (extName.endsWith('.obj')) {
                     loadOBJ(buf, name);
-                } else if (name.endsWith('.stl')) {
+                } else if (extName.endsWith('.stl')) {
                     loadSTL(buf, name);
+                } else if (extName.endsWith('.fbx')) {
+                    loadFBX(buf, name);
                 } else {
                     loadGLTF(buf, name);
                 }
             } catch (err) {
                 hideLoading();
-                alert('URL \u52A0\u8F7D\u5931\u8D25: ' + err.message);
+                alert('URL 加载失败: ' + err.message);
             }
         }
 
