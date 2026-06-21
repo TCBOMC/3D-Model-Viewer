@@ -1123,7 +1123,13 @@
                 return;
             }
             const entry = models[0];
-            const url = entry.url;
+            let url = entry.url;
+            // Auto-upgrade HTTP to HTTPS when the page is served over HTTPS,
+            // otherwise the browser will block the fetch as mixed active content.
+            if (window.location.protocol === 'https:' && url.startsWith('http:')) {
+                url = url.replace(/^http:/, 'https:');
+                console.warn('Auto-upgraded model URL to HTTPS to avoid mixed-content block:', url);
+            }
             const name = entry.name || url.split('/').pop();
             const storeName = source === 'default' ? CACHE_STORE_DEFAULT : CACHE_STORE_JSON;
 
