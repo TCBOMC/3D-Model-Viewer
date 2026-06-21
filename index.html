@@ -609,6 +609,8 @@
             // Controls
             controls = new PointerLockControls(camera, renderer.domElement);
             setupCustomMouseLook();
+			
+			initBody();
 
             // Lights
             const amb = new THREE.AmbientLight(0xffffff, 0.5);
@@ -797,142 +799,206 @@
         let flightYaw   = 0;  // Y rotation (world Y axis, YXZ order)
         let flightPitch = 0;  // X rotation (clamped)
         let flightRoll  = 0;  // Z rotation (Q/E)
-        const FLIGHT_PITCH_MIN = -Math.PI / 2 + 0.01;
-        const FLIGHT_PITCH_MAX =  Math.PI / 2 - 0.01;
+        //const FLIGHT_PITCH_MIN = -Math.PI / 2 + 0.01;
+        //const FLIGHT_PITCH_MAX =  Math.PI / 2 - 0.01;
+		
+		// 飞行模式：身体组 + 摄像机局部无滚转欧拉角
+let body = null;                         // 将在 init 中创建
+let localYaw = 0;                        // 相对 body 的偏航（绕 body 的 Y 轴）
+let localPitch = 0;                      // 相对 body 的俯仰（绕 body 的 X 轴）
+const FLIGHT_PITCH_MIN = -Math.PI / 2 + 0.01;
+const FLIGHT_PITCH_MAX =  Math.PI / 2 - 0.01;
 
         // Ground mode: Euler angles for movement math
         let groundYaw   = 0;
         let groundPitch = 0;
         const GROUND_PITCH_MIN = -Math.PI / 2 + 0.01;
         const GROUND_PITCH_MAX =  Math.PI / 2 - 0.01;
+		
+		function initBody() {
+    body = new THREE.Group();
+    // 将摄像机从场景中移除，添加到 body
+    scene.remove(camera);
+    body.add(camera);
+    scene.add(body);
+    // 同步位置
+    body.position.copy(camera.position);
+    camera.position.set(0, 0, 0);
+    // 初始旋转：假设当前摄像机无滚转，提取偏航俯仰
+    const euler = new THREE.Euler().setFromQuaternion(camera.quaternion, 'YXZ');
+    localYaw = euler.y;
+    localPitch = euler.x;
+    // 设置 body 无旋转，摄像机局部旋转由欧拉角重建
+    body.quaternion.identity();
+    updateCameraLocalQuat();
+}
+
+function updateCameraLocalQuat() {
+    localPitch = Math.max(FLIGHT_PITCH_MIN, Math.min(FLIGHT_PITCH_MAX, localPitch));
+    camera.quaternion.setFromEuler(new THREE.Euler(localPitch, localYaw, 0, 'YXZ'));
+}
 
         function updateMovement() {
-            if (!controls.isLocked) return;
-            const dt = clock.getDelta();
-            const spd = SPEED * speedMultiplier * dt;
+    if (!controls.isLocked) return;
+    const dt = clock.getDelta();
+    const spd = SPEED * speedMultiplier * dt;
 
-            if (moveMode === 1) {
-                // Rebuild camera quaternion from Euler angles (YXZ order)
-                // This is done每一帧，四元数永远从干净的角度重建，不会累积滚转
-                flightPitch = Math.max(FLIGHT_PITCH_MIN, Math.min(FLIGHT_PITCH_MAX, flightPitch));
-                camera.quaternion.setFromEuler(
-                    new THREE.Euler(flightPitch, flightYaw, flightRoll, 'YXZ')
-                );
-
-                // Movement: compute directions from the rebuilt quaternion
-                const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
-                const right   = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
-                const up      = new THREE.Vector3(0, 1, 0).applyQuaternion(camera.quaternion);
-
-                const dir = new THREE.Vector3();
-                if (moveState.f) dir.add(forward);
-                if (moveState.b) dir.sub(forward);
-                if (moveState.r) dir.add(right);
-                if (moveState.l) dir.sub(right);
-                if (moveState.u) dir.add(up);
-                if (moveState.d) dir.sub(up);
-
-                // Q/E: modify flightRoll (independent Euler angle)
-                const rollSpeed = 2.0;
-                if (moveState.q) flightRoll += rollSpeed * dt;
-                if (moveState.e) flightRoll -= rollSpeed * dt;
-
-                if (dir.lengthSq() > 0) {
-                    dir.normalize().multiplyScalar(spd);
-                    camera.position.add(dir);
-                }
-            } else {
-                // Ground mode: XZ movement, world Y for up/down
-                groundPitch = Math.max(GROUND_PITCH_MIN, Math.min(GROUND_PITCH_MAX, groundPitch));
-                camera.quaternion.setFromEuler(
-                    new THREE.Euler(groundPitch, groundYaw, 0, 'YXZ')
-                );
-
-                const fwd = new THREE.Vector3(-Math.sin(groundYaw), 0, -Math.cos(groundYaw));
-                const rgt = new THREE.Vector3( Math.cos(groundYaw), 0, -Math.sin(groundYaw));
-
-                const dir = new THREE.Vector3();
-                if (moveState.f) dir.add(fwd);
-                if (moveState.b) dir.sub(fwd);
-                if (moveState.r) dir.add(rgt);
-                if (moveState.l) dir.sub(rgt);
-                if (moveState.u) dir.y += 1;
-                if (moveState.d) dir.y -= 1;
-
-                if (dir.lengthSq() > 0) {
-                    dir.normalize().multiplyScalar(spd);
-                    camera.position.add(dir);
-                }
+    if (moveMode === 1) {
+        // 1. 根据当前 localYaw/Pitch 构建局部旋转四元数
+        const localQ = new THREE.Quaternion().setFromEuler(
+            new THREE.Euler(localPitch, localYaw, 0, 'YXZ')
+        );
+        camera.quaternion.copy(localQ);  // 相机世界旋转 = body.quaternion * localQ
+    
+        // 2. 检测输入（移动键 或 滚转键）
+        const isMoving = moveState.f || moveState.b || moveState.l || moveState.r || moveState.u || moveState.d;
+        const rollSpeed = 2.0;
+        let rollDelta = 0;
+        if (moveState.q) rollDelta += rollSpeed * dt;
+        if (moveState.e) rollDelta -= rollSpeed * dt;
+        const hasInput = isMoving || rollDelta !== 0;
+    
+        // 3. 如果有输入 → 烘焙：将当前世界旋转赋给 body，局部清零
+        if (hasInput) {
+            // 计算当前世界旋转（body * localQ）
+            const worldQuat = new THREE.Quaternion().multiplyQuaternions(body.quaternion, localQ);
+            body.quaternion.copy(worldQuat);
+            // 重置局部旋转
+            camera.quaternion.identity();
+            localYaw = 0;
+            localPitch = 0;
+    
+            // 4. 滚转处理（绕 body 的局部前向轴旋转，与移动烘焙逻辑一致）
+            if (rollDelta !== 0) {
+                // 直接使用局部坐标轴 (0, 0, -1)，右乘（multiply）到 body 上
+                // 这样滚转绝对围绕视线的正中心，不会产生锥形偏移
+                const rollQ = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, -1), rollDelta);
+                body.quaternion.multiply(rollQ);
             }
         }
+    
+        // 5. 移动方向基于 body 的局部轴（世界空间）
+        const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(body.quaternion);
+        const rgt = new THREE.Vector3(1, 0, 0).applyQuaternion(body.quaternion);
+        const up  = new THREE.Vector3(0, 1, 0).applyQuaternion(body.quaternion);
+    
+        const dir = new THREE.Vector3();
+        if (moveState.f) dir.add(fwd);
+        if (moveState.b) dir.sub(fwd);
+        if (moveState.r) dir.add(rgt);
+        if (moveState.l) dir.sub(rgt);
+        if (moveState.u) dir.add(up);
+        if (moveState.d) dir.sub(up);
+    
+        if (dir.lengthSq() > 0) {
+            dir.normalize().multiplyScalar(spd);
+            body.position.add(dir);
+        }
+    
+        // 6. 再次设置相机局部旋转（因为 body 可能被改动，localYaw/Pitch 可能已清零）
+        const newLocalQ = new THREE.Quaternion().setFromEuler(
+            new THREE.Euler(localPitch, localYaw, 0, 'YXZ')
+        );
+        camera.quaternion.copy(newLocalQ);
+    } else {
+        // ---------- 地面模式（完全保持原样） ----------
+        groundPitch = Math.max(GROUND_PITCH_MIN, Math.min(GROUND_PITCH_MAX, groundPitch));
+        camera.quaternion.setFromEuler(
+            new THREE.Euler(groundPitch, groundYaw, 0, 'YXZ')
+        );
+        // 但地面模式我们没有使用 body，需将 camera 从 body 中移出？为了简化，我们保持 camera 在场景中，且 body 不参与地面模式。
+        // 所以在地面模式时，确保 camera 不在 body 内。
+        if (body && camera.parent === body) {
+            // 将 camera 移回场景，保持世界位置和旋转
+            const worldPos = camera.getWorldPosition(new THREE.Vector3());
+            const worldQuat = camera.getWorldQuaternion(new THREE.Quaternion());
+            scene.attach(camera); // 保持世界变换
+            camera.position.copy(worldPos);
+            camera.quaternion.copy(worldQuat);
+        }
+        // 移动逻辑...
+        const fwd = new THREE.Vector3(-Math.sin(groundYaw), 0, -Math.cos(groundYaw));
+        const rgt = new THREE.Vector3( Math.cos(groundYaw), 0, -Math.sin(groundYaw));
+        const dir = new THREE.Vector3();
+        if (moveState.f) dir.add(fwd);
+        if (moveState.b) dir.sub(fwd);
+        if (moveState.r) dir.add(rgt);
+        if (moveState.l) dir.sub(rgt);
+        if (moveState.u) dir.y += 1;
+        if (moveState.d) dir.y -= 1;
+        if (dir.lengthSq() > 0) {
+            dir.normalize().multiplyScalar(spd);
+            camera.position.add(dir);
+        }
+    }
+}
 
         // Replace PointerLockControls' default mouse look.
         // MOUSE INPUT → Euler angle modification → quaternion rebuild each frame.
         // This eliminates quaternion accumulation / roll drift.
         // YXZ order: yaw around world Y, then pitch around local X, then roll around local Z.
         function setupCustomMouseLook() {
-            const defaultOnMouseMove = controls._onMouseMove;
-            document.removeEventListener('mousemove', defaultOnMouseMove);
+    const defaultOnMouseMove = controls._onMouseMove;
+    document.removeEventListener('mousemove', defaultOnMouseMove);
 
-            document.addEventListener('mousemove', e => {
-                if (!controls.isLocked) return;
-                const movementX = e.movementX || e.mozMovementX || e.webkitMovementX || 0;
-                const movementY = e.movementY || e.mozMovementY || e.webkitMovementY || 0;
-                const sensitivity = 0.002;
+    document.addEventListener('mousemove', e => {
+        if (!controls.isLocked) return;
+        const movementX = e.movementX || e.mozMovementX || e.webkitMovementX || 0;
+        const movementY = e.movementY || e.mozMovementY || e.webkitMovementY || 0;
+        const sensitivity = 0.002;
 
-                if (moveMode === 1) {
-                    // Flight mode: mouse input follows camera's LOCAL axes.
-                    // Approach: build temp quaternion from current Euler angles,
-                    // apply local-axis rotations, extract Euler angles back.
-                    // Stored state is always Euler angles; quaternion is not accumulated across frames.
-                    const dYaw   = -movementX * sensitivity;
-                    const dPitch = -movementY * sensitivity;
-
-                    // Build quaternion from current Euler angles (YXZ order)
-                    const tempQ = new THREE.Quaternion().setFromEuler(
-                        new THREE.Euler(flightPitch, flightYaw, flightRoll, 'YXZ')
-                    );
-
-                    // Mouse X: rotate around camera's local Y axis
-                    const localY = new THREE.Vector3(0, 1, 0).applyQuaternion(tempQ);
-                    tempQ.premultiply(new THREE.Quaternion().setFromAxisAngle(localY, dYaw));
-
-                    // Mouse Y: rotate around camera's local X axis
-                    const localX = new THREE.Vector3(1, 0, 0).applyQuaternion(tempQ);
-                    tempQ.premultiply(new THREE.Quaternion().setFromAxisAngle(localX, dPitch));
-
-                    // Extract Euler angles back (YXZ order)
-                    const newEuler = new THREE.Euler().setFromQuaternion(tempQ, 'YXZ');
-                    flightYaw   = newEuler.y;
-                    flightPitch = newEuler.x;
-                    flightRoll  = newEuler.z;
-
-                    // Clamp pitch to prevent gimbal lock
-                    flightPitch = Math.max(FLIGHT_PITCH_MIN, Math.min(FLIGHT_PITCH_MAX, flightPitch));
-                } else {
-                    // Ground mode: same approach, Euler angles
-                    groundYaw   -= movementX * sensitivity;
-                    groundPitch -= movementY * sensitivity;
-                    groundPitch = Math.max(GROUND_PITCH_MIN, Math.min(GROUND_PITCH_MAX, groundPitch));
-                }
-            });
+        if (moveMode === 1) {
+            // 只累加局部欧拉角，不直接设置相机旋转（留到 update 中统一处理）
+            localYaw   += -movementX * sensitivity;
+            localPitch += -movementY * sensitivity;
+            localPitch = Math.max(FLIGHT_PITCH_MIN, Math.min(FLIGHT_PITCH_MAX, localPitch));
+        } else {
+            groundYaw   -= movementX * sensitivity;
+            groundPitch -= movementY * sensitivity;
+            groundPitch = Math.max(GROUND_PITCH_MIN, Math.min(GROUND_PITCH_MAX, groundPitch));
         }
+    });
+}
 
         // When switching modes, sync the target mode's Euler angles from the
         // current camera quaternion so the transition is seamless.
         function syncAnglesForModeSwitch() {
-            const euler = new THREE.Euler().setFromQuaternion(camera.quaternion, 'YXZ');
-            if (moveMode === 1) {
-                // Switching to flight mode: init flight Euler angles
-                flightPitch = euler.x;
-                flightYaw   = euler.y;
-                flightRoll  = euler.z;
-            } else {
-                // Switching to ground mode: init ground Euler angles
-                groundPitch = euler.x;
-                groundYaw   = euler.y;
-            }
+    if (moveMode === 1) {
+        // 切换到飞行模式
+        if (!body) {
+            body = new THREE.Group();
+            scene.add(body);
         }
+        if (camera.parent !== body) {
+            // 保存当前世界位置和旋转
+            const worldPos = camera.getWorldPosition(new THREE.Vector3());
+            const worldQuat = camera.getWorldQuaternion(new THREE.Quaternion());
+            // 将相机添加到 body（保持世界变换）
+            body.attach(camera);
+            // body 的位置和旋转设为相机原先的世界变换
+            body.position.copy(worldPos);
+            body.quaternion.copy(worldQuat);
+            // 相机相对于 body 的位置和旋转归零
+            camera.position.set(0, 0, 0);
+            camera.quaternion.identity();
+            // 局部欧拉角清零
+            localYaw = 0;
+            localPitch = 0;
+        }
+    } else {
+        // 切换到地面模式（保持原逻辑）
+        if (body && camera.parent === body) {
+            const worldPos = camera.getWorldPosition(new THREE.Vector3());
+            const worldQuat = camera.getWorldQuaternion(new THREE.Quaternion());
+            scene.attach(camera);
+            camera.position.copy(worldPos);
+            camera.quaternion.copy(worldQuat);
+        }
+        const euler = new THREE.Euler().setFromQuaternion(camera.quaternion, 'YXZ');
+        groundPitch = euler.x;
+        groundYaw   = euler.y;
+    }
+}
 
 
         // ===================== CACHE (IndexedDB) =====================
