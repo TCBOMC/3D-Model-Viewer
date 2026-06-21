@@ -716,10 +716,7 @@
                     case 'Tab':
                         e.preventDefault();
                         moveMode = (moveMode + 1) % 2;
-                        if (moveMode === 0) {
-                            // Switching to ground mode: sync Euler angles from quaternion
-                            syncGroundAnglesFromQuaternion();
-                        }
+                        syncAnglesForModeSwitch();
                         updateMoveModeHint();
                         showMoveModeToast();
                         break;
@@ -794,9 +791,17 @@
         }
 
         // ===================== MOVEMENT =====================
-        // In flight mode, camera.quaternion is updated incrementally by mouse/keyboard.
-        // In ground mode, we track yaw/pitch for movement math (Euler angles, clamped pitch).
-        let groundYaw = 0;
+        // Flight mode camera orientation stored as Euler angles (YXZ order).
+        // Mouse input modifies these angles; camera.quaternion is rebuilt
+        // from scratch each frame — no quaternion accumulation, no roll drift.
+        let flightYaw   = 0;  // Y rotation (world Y axis, YXZ order)
+        let flightPitch = 0;  // X rotation (clamped)
+        let flightRoll  = 0;  // Z rotation (Q/E)
+        const FLIGHT_PITCH_MIN = -Math.PI / 2 + 0.01;
+        const FLIGHT_PITCH_MAX =  Math.PI / 2 - 0.01;
+
+        // Ground mode: Euler angles for movement math
+        let groundYaw   = 0;
         let groundPitch = 0;
         const GROUND_PITCH_MIN = -Math.PI / 2 + 0.01;
         const GROUND_PITCH_MAX =  Math.PI / 2 - 0.01;
@@ -806,15 +811,20 @@
             const dt = clock.getDelta();
             const spd = SPEED * speedMultiplier * dt;
 
-            const dir = new THREE.Vector3();
-
             if (moveMode === 1) {
-                // Flight mode: movement aligned to camera's full orientation.
-                // Directions are computed fresh from camera.quaternion each frame.
+                // Rebuild camera quaternion from Euler angles (YXZ order)
+                // This is done每一帧，四元数永远从干净的角度重建，不会累积滚转
+                flightPitch = Math.max(FLIGHT_PITCH_MIN, Math.min(FLIGHT_PITCH_MAX, flightPitch));
+                camera.quaternion.setFromEuler(
+                    new THREE.Euler(flightPitch, flightYaw, flightRoll, 'YXZ')
+                );
+
+                // Movement: compute directions from the rebuilt quaternion
                 const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
                 const right   = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
                 const up      = new THREE.Vector3(0, 1, 0).applyQuaternion(camera.quaternion);
 
+                const dir = new THREE.Vector3();
                 if (moveState.f) dir.add(forward);
                 if (moveState.b) dir.sub(forward);
                 if (moveState.r) dir.add(right);
@@ -822,27 +832,26 @@
                 if (moveState.u) dir.add(up);
                 if (moveState.d) dir.sub(up);
 
-                // Q/E: roll around camera's local forward axis (incremental quaternion)
+                // Q/E: modify flightRoll (independent Euler angle)
                 const rollSpeed = 2.0;
-                if (moveState.q || moveState.e) {
-                    const rollAngle = rollSpeed * dt * (moveState.q ? 1 : -1);
-                    const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
-                    const rollQuat = new THREE.Quaternion().setFromAxisAngle(fwd, rollAngle);
-                    camera.quaternion.premultiply(rollQuat);
-                    camera.quaternion.normalize();
-                }
+                if (moveState.q) flightRoll += rollSpeed * dt;
+                if (moveState.e) flightRoll -= rollSpeed * dt;
 
-                camera.position.add(dir.multiplyScalar(spd));
+                if (dir.lengthSq() > 0) {
+                    dir.normalize().multiplyScalar(spd);
+                    camera.position.add(dir);
+                }
             } else {
-                // Ground mode: XZ movement, world Y for up/down.
-                // Recompute camera.quaternion from groundYaw/groundPitch each frame
-                // so the view follows the (clamped) Euler angles.
+                // Ground mode: XZ movement, world Y for up/down
                 groundPitch = Math.max(GROUND_PITCH_MIN, Math.min(GROUND_PITCH_MAX, groundPitch));
-                camera.quaternion.setFromEuler(new THREE.Euler(groundPitch, groundYaw, 0, 'YXZ'));
+                camera.quaternion.setFromEuler(
+                    new THREE.Euler(groundPitch, groundYaw, 0, 'YXZ')
+                );
 
                 const fwd = new THREE.Vector3(-Math.sin(groundYaw), 0, -Math.cos(groundYaw));
                 const rgt = new THREE.Vector3( Math.cos(groundYaw), 0, -Math.sin(groundYaw));
 
+                const dir = new THREE.Vector3();
                 if (moveState.f) dir.add(fwd);
                 if (moveState.b) dir.sub(fwd);
                 if (moveState.r) dir.add(rgt);
@@ -858,9 +867,9 @@
         }
 
         // Replace PointerLockControls' default mouse look.
-        // - Flight mode: incremental quaternion rotations around camera's LOCAL axes,
-        //   so mouse response always follows the camera's current orientation.
-        // - Ground mode: Euler angles (groundYaw/groundPitch), clamped pitch.
+        // MOUSE INPUT → Euler angle modification → quaternion rebuild each frame.
+        // This eliminates quaternion accumulation / roll drift.
+        // YXZ order: yaw around world Y, then pitch around local X, then roll around local Z.
         function setupCustomMouseLook() {
             const defaultOnMouseMove = controls._onMouseMove;
             document.removeEventListener('mousemove', defaultOnMouseMove);
@@ -872,33 +881,34 @@
                 const sensitivity = 0.002;
 
                 if (moveMode === 1) {
-                    // Flight mode: rotate around camera's LOCAL up axis (mouse X)
-                    // and LOCAL right axis (mouse Y). This uses incremental
-                    // quaternion premultiplication so the axes are always correct.
-                    const up = new THREE.Vector3(0, 1, 0).applyQuaternion(camera.quaternion);
-                    const yawQuat = new THREE.Quaternion().setFromAxisAngle(up, -movementX * sensitivity);
-                    camera.quaternion.premultiply(yawQuat);
-
-                    const right = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
-                    const pitchQuat = new THREE.Quaternion().setFromAxisAngle(right, -movementY * sensitivity);
-                    camera.quaternion.premultiply(pitchQuat);
-
-                    camera.quaternion.normalize();
+                    // Flight mode: mouse X → flightYaw, mouse Y → flightPitch
+                    // Yaw rotates around world Y (standard FPS behavior, no roll drift)
+                    flightYaw   -= movementX * sensitivity;
+                    flightPitch -= movementY * sensitivity;
+                    flightPitch = Math.max(FLIGHT_PITCH_MIN, Math.min(FLIGHT_PITCH_MAX, flightPitch));
                 } else {
-                    // Ground mode: Euler angles, yaw around world Y, pitch around local X
-                    groundYaw -= movementX * sensitivity;
+                    // Ground mode: same approach, Euler angles
+                    groundYaw   -= movementX * sensitivity;
                     groundPitch -= movementY * sensitivity;
                     groundPitch = Math.max(GROUND_PITCH_MIN, Math.min(GROUND_PITCH_MAX, groundPitch));
                 }
             });
         }
 
-        // When switching from flight mode to ground mode, extract groundYaw/groundPitch
-        // from the current camera quaternion so the transition is seamless.
-        function syncGroundAnglesFromQuaternion() {
+        // When switching modes, sync the target mode's Euler angles from the
+        // current camera quaternion so the transition is seamless.
+        function syncAnglesForModeSwitch() {
             const euler = new THREE.Euler().setFromQuaternion(camera.quaternion, 'YXZ');
-            groundYaw = euler.y;
-            groundPitch = euler.x;
+            if (moveMode === 1) {
+                // Switching to flight mode: init flight Euler angles
+                flightPitch = euler.x;
+                flightYaw   = euler.y;
+                flightRoll  = euler.z;
+            } else {
+                // Switching to ground mode: init ground Euler angles
+                groundPitch = euler.x;
+                groundYaw   = euler.y;
+            }
         }
 
 
