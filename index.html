@@ -881,10 +881,33 @@
                 const sensitivity = 0.002;
 
                 if (moveMode === 1) {
-                    // Flight mode: mouse X → flightYaw, mouse Y → flightPitch
-                    // Yaw rotates around world Y (standard FPS behavior, no roll drift)
-                    flightYaw   -= movementX * sensitivity;
-                    flightPitch -= movementY * sensitivity;
+                    // Flight mode: mouse input follows camera's LOCAL axes.
+                    // Approach: build temp quaternion from current Euler angles,
+                    // apply local-axis rotations, extract Euler angles back.
+                    // Stored state is always Euler angles; quaternion is not accumulated across frames.
+                    const dYaw   = -movementX * sensitivity;
+                    const dPitch = -movementY * sensitivity;
+
+                    // Build quaternion from current Euler angles (YXZ order)
+                    const tempQ = new THREE.Quaternion().setFromEuler(
+                        new THREE.Euler(flightPitch, flightYaw, flightRoll, 'YXZ')
+                    );
+
+                    // Mouse X: rotate around camera's local Y axis
+                    const localY = new THREE.Vector3(0, 1, 0).applyQuaternion(tempQ);
+                    tempQ.premultiply(new THREE.Quaternion().setFromAxisAngle(localY, dYaw));
+
+                    // Mouse Y: rotate around camera's local X axis
+                    const localX = new THREE.Vector3(1, 0, 0).applyQuaternion(tempQ);
+                    tempQ.premultiply(new THREE.Quaternion().setFromAxisAngle(localX, dPitch));
+
+                    // Extract Euler angles back (YXZ order)
+                    const newEuler = new THREE.Euler().setFromQuaternion(tempQ, 'YXZ');
+                    flightYaw   = newEuler.y;
+                    flightPitch = newEuler.x;
+                    flightRoll  = newEuler.z;
+
+                    // Clamp pitch to prevent gimbal lock
                     flightPitch = Math.max(FLIGHT_PITCH_MIN, Math.min(FLIGHT_PITCH_MAX, flightPitch));
                 } else {
                     // Ground mode: same approach, Euler angles
