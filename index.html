@@ -359,6 +359,29 @@
         #shortcut-warning.show {
             transform: translateX(-50%) translateY(0);
         }
+
+        /* Speed multiplier toast */
+        #speed-toast {
+            position: fixed;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%) translateY(-100px);
+            background: rgba(99, 102, 241, 0.95);
+            color: #fff;
+            padding: 10px 22px;
+            border-radius: 10px;
+            font-size: 14px;
+            font-weight: 700;
+            z-index: 100;
+            transition: transform 0.2s ease, opacity 0.2s ease;
+            pointer-events: none;
+            opacity: 0;
+            box-shadow: 0 4px 20px rgba(99, 102, 241, 0.4);
+        }
+        #speed-toast.show {
+            transform: translateX(-50%) translateY(0);
+            opacity: 1;
+        }
     </style>
 </head>
 <body>
@@ -410,9 +433,9 @@
         <div id="controls-hint">
             <span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 移动</span>
             <span><kbd>鼠标</kbd> 环视</span>
-            <span><kbd>Shift</kbd> 加速</span>
+            <span><kbd>滚轮</kbd> 速度 <span id="speed-hint">1.0x</span></span>
             <span><kbd>空格</kbd> 上升</span>
-            <span><kbd>C</kbd> 下降</span>
+            <span><kbd>Shift</kbd> 下降</span>
             <span><kbd>Alt</kbd> 切换鼠标模式 [<span id="mouse-mode-hint">点击锁定</span>]</span>
             <span style="color:rgba(255,255,255,0.3);">点击画面开始控制</span>
         </div>
@@ -484,6 +507,9 @@
     <!-- Shortcut warning -->
     <div id="shortcut-warning">已屏蔽浏览器快捷键</div>
 
+    <!-- Speed multiplier toast -->
+    <div id="speed-toast">速度 1.0x</div>
+
     <!-- File input -->
     <input id="file-input" type="file" accept=".glb,.gltf,.ply,.obj,.stl,.fbx,.json" />
 
@@ -516,10 +542,15 @@
         let mouseLockMode = true;
 
         const moveState = {
-            f: false, b: false, l: false, r: false, u: false, d: false, boost: false
+            f: false, b: false, l: false, r: false, u: false, d: false
         };
-        const SPEED = 6.0;
-        const BOOST = 3.0;
+        const SPEED = 6.0;                 // base movement speed
+        let speedMultiplier = 1.0;         // 0.01x ~ 100x, controlled by mouse wheel
+        let wheelAccumulator = 0;          // accumulate smooth wheel deltas
+        const SPEED_MIN = 0.01;
+        const SPEED_MAX = 100.0;
+        const SPEED_STEP = 1.05;           // 5% per wheel notch
+        const WHEEL_THRESHOLD = 50;        // one notch threshold
 
         // Expose for inline event handlers
         window._scene = null;
@@ -673,8 +704,7 @@
                     case 'KeyA': moveState.l = true; break;
                     case 'KeyD': moveState.r = true; break;
                     case 'Space': moveState.u = true; e.preventDefault(); break;
-                    case 'KeyC': moveState.d = true; break;
-                    case 'ShiftLeft': case 'ShiftRight': moveState.boost = true; break;
+                    case 'ShiftLeft': case 'ShiftRight': moveState.d = true; break;
                     case 'AltLeft': case 'AltRight':
                         e.preventDefault();
                         mouseLockMode = !mouseLockMode;
@@ -695,10 +725,23 @@
                     case 'KeyA': moveState.l = false; break;
                     case 'KeyD': moveState.r = false; break;
                     case 'Space': moveState.u = false; break;
-                    case 'KeyC': moveState.d = false; break;
-                    case 'ShiftLeft': case 'ShiftRight': moveState.boost = false; break;
+                    case 'ShiftLeft': case 'ShiftRight': moveState.d = false; break;
                 }
             });
+
+            // Mouse wheel: adjust movement speed multiplier (0.01x ~ 100x)
+            document.addEventListener('wheel', e => {
+                if (!controls.isLocked) return;
+                e.preventDefault();
+                wheelAccumulator += e.deltaY;
+                if (Math.abs(wheelAccumulator) < WHEEL_THRESHOLD) return;
+                const direction = Math.sign(wheelAccumulator);
+                wheelAccumulator -= direction * WHEEL_THRESHOLD; // keep overflow
+                const factor = direction > 0 ? 1 / SPEED_STEP : SPEED_STEP; // scroll down slower, up faster
+                speedMultiplier = Math.min(SPEED_MAX, Math.max(SPEED_MIN, speedMultiplier * factor));
+                updateSpeedHint();
+                showSpeedToast();
+            }, { passive: false });
 
             // File input
             document.getElementById('file-input').addEventListener('change', e => {
@@ -734,7 +777,7 @@
         function updateMovement() {
             if (!controls.isLocked) return;
             const dt = clock.getDelta();
-            const spd = SPEED * (moveState.boost ? BOOST : 1) * dt;
+            const spd = SPEED * speedMultiplier * dt;
 
             const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
             forward.y = 0;
@@ -1532,6 +1575,23 @@
             }
         }
 
+        function updateSpeedHint() {
+            const hint = document.getElementById('speed-hint');
+            if (hint) {
+                hint.textContent = `${speedMultiplier.toFixed(2)}x`;
+            }
+        }
+
+        let speedToastTimeout = null;
+        function showSpeedToast() {
+            const toast = document.getElementById('speed-toast');
+            if (!toast) return;
+            toast.textContent = `速度 ${speedMultiplier.toFixed(2)}x`;
+            toast.classList.add('show');
+            if (speedToastTimeout) clearTimeout(speedToastTimeout);
+            speedToastTimeout = setTimeout(() => toast.classList.remove('show'), 1200);
+        }
+
         function showShortcutWarning(shortcut) {
             const toast = document.getElementById('shortcut-warning');
             toast.textContent = `已屏蔽浏览器快捷键: ${shortcut}`;
@@ -1561,6 +1621,7 @@
         init();
         lastFpsTime = performance.now();
         updateMouseModeHint();
+        updateSpeedHint();
         renderer.domElement.style.cursor = 'grab';
 
         // Try to load default model
