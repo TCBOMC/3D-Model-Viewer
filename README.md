@@ -2,6 +2,7 @@
 
 基于 Three.js 的网页端 3D 模型查看器，支持 Mesh 和点云模型，具备游戏引擎风格的 WASD + 鼠标自由漫游控制。
 
+[网页预览](https://tcbomc.github.io/3D-Model-Viewer/)
 ## ✨ 功能特性
 
 - 🎮 **FPS 风格相机控制**：WASD 移动 + 鼠标环视，Shift 加速，空格上升，C 下降
