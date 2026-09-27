@@ -469,6 +469,7 @@
             <span><kbd>空格</kbd> 上升<br><kbd>Shift</kbd> 下降</span>
             <span><kbd>鼠标</kbd> 环视</span>
             <span><kbd>Q</kbd><kbd>E</kbd> 滚转（飞行模式）</span>
+            <span><kbd>X</kbd><kbd>Y</kbd><kbd>Z</kbd> 参考系回正<br>朝向不变·上方向对齐到轴</span>
             <span><kbd>滚轮</kbd> 速度<br><span class="hint-val">[<span id="speed-hint">1.00x</span>]</span></span>
             <span><kbd>Tab</kbd> 移动模式<br><span class="hint-val">[<span id="move-mode-hint">地面</span>]</span></span>
             <span><kbd>Alt</kbd> 切换鼠标模式<br><span class="hint-val">[<span id="mouse-mode-hint">点击锁定</span>]</span></span>
@@ -773,6 +774,9 @@
                     case 'ShiftLeft': case 'ShiftRight': moveState.d = true; break;
                     case 'KeyQ': moveState.q = true; break;
                     case 'KeyE': moveState.e = true; break;
+                    case 'KeyX': case 'KeyY': case 'KeyZ':
+                        if (!e.repeat) alignFrameToAxis(e.code.slice(3).toLowerCase());
+                        break;
                     case 'Tab':
                         e.preventDefault();
                         moveMode = (moveMode + 1) % 2;
@@ -876,6 +880,7 @@
 let body = null;                         // 将在 init 中创建
 let localYaw = 0;                        // 相对 body 的偏航（绕 body 的 Y 轴）
 let localPitch = 0;                      // 相对 body 的俯仰（绕 body 的 X 轴）
+let localRoll = 0;                       // 相对 body 的滚转（平时恒为 0，参考系回正时清零）
 const FLIGHT_PITCH_MIN = -Math.PI / 2 + 0.01;
 const FLIGHT_PITCH_MAX =  Math.PI / 2 - 0.01;
 
@@ -898,6 +903,7 @@ const FLIGHT_PITCH_MAX =  Math.PI / 2 - 0.01;
     const euler = new THREE.Euler().setFromQuaternion(camera.quaternion, 'YXZ');
     localYaw = euler.y;
     localPitch = euler.x;
+    localRoll = euler.z;
     // 设置 body 无旋转，摄像机局部旋转由欧拉角重建
     body.quaternion.identity();
     updateCameraLocalQuat();
@@ -905,7 +911,7 @@ const FLIGHT_PITCH_MAX =  Math.PI / 2 - 0.01;
 
 function updateCameraLocalQuat() {
     localPitch = Math.max(FLIGHT_PITCH_MIN, Math.min(FLIGHT_PITCH_MAX, localPitch));
-    camera.quaternion.setFromEuler(new THREE.Euler(localPitch, localYaw, 0, 'YXZ'));
+    camera.quaternion.setFromEuler(new THREE.Euler(localPitch, localYaw, localRoll, 'YXZ'));
 }
 
         function updateMovement() {
@@ -914,9 +920,9 @@ function updateCameraLocalQuat() {
     const spd = SPEED * speedMultiplier * dt;
 
     if (moveMode === 1) {
-        // 1. 根据当前 localYaw/Pitch 构建局部旋转四元数
+        // 1. 根据当前 localYaw/Pitch/Roll 构建局部旋转四元数
         const localQ = new THREE.Quaternion().setFromEuler(
-            new THREE.Euler(localPitch, localYaw, 0, 'YXZ')
+            new THREE.Euler(localPitch, localYaw, localRoll, 'YXZ')
         );
         camera.quaternion.copy(localQ);  // 相机世界旋转 = body.quaternion * localQ
     
@@ -937,6 +943,7 @@ function updateCameraLocalQuat() {
             camera.quaternion.identity();
             localYaw = 0;
             localPitch = 0;
+            localRoll = 0;
     
             // 4. 滚转处理（绕 body 的局部前向轴旋转，与移动烘焙逻辑一致）
             if (rollDelta !== 0) {
@@ -967,7 +974,7 @@ function updateCameraLocalQuat() {
     
         // 6. 再次设置相机局部旋转（因为 body 可能被改动，localYaw/Pitch 可能已清零）
         const newLocalQ = new THREE.Quaternion().setFromEuler(
-            new THREE.Euler(localPitch, localYaw, 0, 'YXZ')
+            new THREE.Euler(localPitch, localYaw, localRoll, 'YXZ')
         );
         camera.quaternion.copy(newLocalQ);
     } else {
@@ -1002,6 +1009,44 @@ function updateCameraLocalQuat() {
         }
     }
 }
+
+        // ===================== REFERENCE FRAME ALIGNMENT (X/Y/Z) =====================
+        // 按下 X/Y/Z：把摄像机参考系（body 的上方向，即极坐标俯仰的死锁轴）
+        // 对齐到对应的世界坐标轴（± 由当前上方向更接近哪端决定）。
+        // 对齐时视线方向保持不变：body 旋转后，把原视线方向在新 body 空间
+        // 中重新分解为 yaw/pitch，局部滚转清零（修正滚转）。这样俯仰到达
+        // ±90° 死锁点时，视线正好落在对应轴上。
+        // 地面模式没有 body，本功能不生效。
+        const AXIS_VECTORS = {
+            'x': new THREE.Vector3(1, 0, 0),
+            'y': new THREE.Vector3(0, 1, 0),
+            'z': new THREE.Vector3(0, 0, 1)
+        };
+
+        function alignFrameToAxis(axisName) {
+            if (moveMode !== 1 || !body) return; // 仅飞行模式（地面模式无 body）
+
+            const axisVec = AXIS_VECTORS[axisName];
+            const bodyUp = new THREE.Vector3(0, 1, 0).applyQuaternion(body.quaternion);
+
+            // 上方向更接近正方向就对齐到 +轴，反之对齐到 -轴（恰好 90° 时取正）
+            const target = axisVec.clone().multiplyScalar(bodyUp.dot(axisVec) >= 0 ? 1 : -1);
+            if (bodyUp.distanceToSquared(target) < 1e-12) return; // 已对齐，无需处理
+
+            // 记录当前视线方向（世界空间），对齐后必须保持不变
+            const viewWorld = camera.getWorldDirection(new THREE.Vector3());
+
+            // 最小弧旋转：把 body 上方向（参考系极轴）转到目标轴
+            const R = new THREE.Quaternion().setFromUnitVectors(bodyUp, target);
+            body.quaternion.premultiply(R);
+
+            // 视线方向在新 body 空间中重新分解为 yaw/pitch（滚转恒为 0）
+            // Ry(yaw)·Rx(pitch)·(0,0,-1) = (-cosP·sinY, sinP, -cosP·cosY)
+            const viewLocal = viewWorld.applyQuaternion(body.quaternion.clone().invert());
+            localPitch = Math.asin(THREE.MathUtils.clamp(viewLocal.y, -1, 1));
+            localYaw = Math.atan2(-viewLocal.x, -viewLocal.z);
+            localRoll = 0;
+        }
 
         // Replace PointerLockControls' default mouse look.
         // MOUSE INPUT → Euler angle modification → quaternion rebuild each frame.
@@ -1054,6 +1099,7 @@ function updateCameraLocalQuat() {
             // 局部欧拉角清零
             localYaw = 0;
             localPitch = 0;
+            localRoll = 0;
         }
     } else {
         // 切换到地面模式（保持原逻辑）
