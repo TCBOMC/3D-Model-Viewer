@@ -512,14 +512,14 @@
     <div id="speed-toast">速度 1.0x</div>
 
     <!-- File input -->
-    <input id="file-input" type="file" accept=".glb,.gltf,.ply,.obj,.stl,.fbx,.json" />
+    <input id="file-input" type="file" accept=".glb,.gltf,.ply,.obj,.stl,.fbx,.json,.usdz" />
 
     <!-- Three.js + Loaders via CDN (ES Module) -->
     <script type="importmap">
     {
         "imports": {
-            "three": "https://cdn.jsdelivr.net/npm/three@0.162.0/build/three.module.js",
-            "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.162.0/examples/jsm/"
+            "three": "https://cdn.jsdelivr.net/npm/three@0.186.1/build/three.module.js",
+            "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.1/examples/jsm/"
         }
     }
     </script>
@@ -531,6 +531,26 @@
         import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
         import { STLLoader } from 'three/addons/loaders/STLLoader.js';
         import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
+        import { USDLoader } from 'three/addons/loaders/USDLoader.js';
+        import { USDComposer } from 'three/addons/loaders/usd/USDComposer.js';
+
+        // Workaround for a three.js r184+ bug: USDComposer._expandAttribute builds
+        // `new Array(indices.length * itemSize)`, which throws "Invalid array length"
+        // on large meshes (e.g. multi-million-triangle USDZ like the NASA Moon).
+        // Replace it with a typed-array implementation that also guards OOB reads.
+        USDComposer.prototype._expandAttribute = function ( data, indices, itemSize ) {
+            const outLen = indices.length * itemSize;
+            const expanded = new Float32Array( outLen );
+            const dataLen = data.length;
+            for ( let i = 0; i < indices.length; i ++ ) {
+                const srcIdx = indices[ i ];
+                for ( let j = 0; j < itemSize; j ++ ) {
+                    const di = srcIdx * itemSize + j;
+                    expanded[ i * itemSize + j ] = di < dataLen ? data[ di ] : 0;
+                }
+            }
+            return expanded;
+        };
 
         // ===================== GLOBALS =====================
         let scene, camera, renderer, controls;
@@ -1394,6 +1414,8 @@ function updateCameraLocalQuat() {
                 loadSTL(buffer, name);
             } else if (extName.endsWith('.fbx')) {
                 loadFBX(buffer, name);
+            } else if (extName.endsWith('.usdz')) {
+                loadUSDZ(buffer, name);
             } else {
                 loadGLTF(buffer, name);
             }
@@ -1452,6 +1474,8 @@ function updateCameraLocalQuat() {
                     loadSTL(buf, file.name);
                 } else if (name.endsWith('.fbx')) {
                     loadFBX(buf, file.name);
+                } else if (name.endsWith('.usdz')) {
+                    loadUSDZ(buf, file.name);
                 } else {
                     loadGLTF(buf, file.name);
                 }
@@ -1668,6 +1692,130 @@ function updateCameraLocalQuat() {
             });
         }
 
+        // USDZ is a self-contained ZIP of USD + embedded textures. three.js'
+        // USDLoader (r184+) parses it and decodes both ASCII (USDA) and binary
+        // crate (USDC) payloads, returning a THREE.Group. The parse is synchronous
+        // for the group structure; embedded textures load asynchronously.
+        // WebGL enforces a per-draw-call vertex limit (Firefox ~30M, others vary).
+        // A single non-indexed mesh above that limit is silently dropped by the
+        // GPU, so the model "loads" but never appears. Split such meshes into
+        // chunks that each stay safely under the limit.
+        //
+        // CRITICAL: the chunk stride MUST be a multiple of 3. A non-indexed
+        // geometry is a flat list of triangle vertices (v0v1v2, v3v4v5, ...),
+        // so a boundary that is not triangle-aligned shifts every following
+        // triangle by one vertex and shreds that whole chunk into a regular
+        // "missing face" mosaic.
+        const MAX_VERTS_PER_DRAW = 24_000_000;
+
+        function splitMeshByVertices(mesh) {
+            const geo = mesh.geometry;
+            const pos = geo.attributes.position;
+            if (!pos || pos.count <= MAX_VERTS_PER_DRAW) return null;
+            const count = pos.count;
+            const indexed = !!geo.index;
+            const stride = indexed ? MAX_VERTS_PER_DRAW : Math.floor(MAX_VERTS_PER_DRAW / 3) * 3;
+            const group = new THREE.Group();
+            group.name = (mesh.name || 'mesh') + '_split';
+            for (let start = 0; start < count; start += stride) {
+                const end = Math.min(start + stride, count);
+                const sub = new THREE.BufferGeometry();
+                for (const key in geo.attributes) {
+                    const attr = geo.attributes[key];
+                    const itemSize = attr.itemSize;
+                    const sliced = attr.array.slice(start * itemSize, end * itemSize);
+                    sub.setAttribute(key, new THREE.BufferAttribute(sliced, itemSize));
+                }
+                if (indexed) {
+                    const idx = geo.index.array;
+                    const subIdx = [];
+                    for (let i = 0; i < idx.length; i += 3) {
+                        const a = idx[i], b = idx[i + 1], c = idx[i + 2];
+                        if (a >= start && a < end && b >= start && b < end && c >= start && c < end) {
+                            subIdx.push(a - start, b - start, c - start);
+                        }
+                    }
+                    if (subIdx.length) sub.setIndex(subIdx);
+                }
+                const m = new THREE.Mesh(sub, mesh.material);
+                m.castShadow = mesh.castShadow;
+                m.receiveShadow = mesh.receiveShadow;
+                group.add(m);
+            }
+            return group;
+        }
+
+        function loadUSDZ(buffer, fileName) {
+            console.log('Loading USDZ:', fileName);
+            try {
+                const loader = new USDLoader();
+                const model = loader.parse(buffer);
+
+                if (!model || model.children.length === 0) {
+                    hideLoading();
+                    alert('USDZ 加载失败：未找到可用模型。\n常见原因：文件已损坏，或不是有效的 USDZ 包（缺少 .usd/.usda/.usdc 场景描述）。');
+                    return;
+                }
+
+                // Split any mesh exceeding the GPU per-draw vertex limit so it
+                // actually renders instead of being silently dropped.
+                const oversized = [];
+                model.traverse((child) => {
+                    if (child.isMesh) oversized.push(child);
+                });
+                oversized.forEach((child) => {
+                    const split = splitMeshByVertices(child);
+                    if (split && child.parent) {
+                        child.parent.add(split);
+                        child.parent.remove(child);
+                        child.geometry.dispose();
+                    }
+                });
+
+                clearModel();
+
+                // Center + scale to fit, same convention as other mesh loaders.
+                const box = new THREE.Box3().setFromObject(model);
+                const center = box.getCenter(new THREE.Vector3());
+                const size = box.getSize(new THREE.Vector3());
+                const maxDim = Math.max(size.x, size.y, size.z);
+                const scale = maxDim > 0 ? 5.0 / maxDim : 1;
+                model.position.sub(center);
+                model.scale.setScalar(scale);
+                model.position.y += size.y * scale * 0.5;
+
+                // Enable shadows
+                model.traverse((child) => {
+                    if (child.isMesh) {
+                        child.castShadow = true;
+                        child.receiveShadow = true;
+                    }
+                });
+
+                scene.add(model);
+                currentModel = model;
+                window._currentModel = model;
+
+                let vertCount = 0, faceCount = 0;
+                model.traverse((child) => {
+                    if (child.isMesh && child.geometry) {
+                        vertCount += child.geometry.attributes.position.count;
+                        if (child.geometry.index) faceCount += child.geometry.index.count / 3;
+                        else faceCount += child.geometry.attributes.position.count / 3;
+                    }
+                });
+                updateInfoPanel(fileName, 'USDZ', vertCount, Math.round(faceCount));
+
+                hideLoading();
+                document.getElementById('welcome').classList.add('hidden');
+                console.log('USDZ loaded successfully');
+            } catch (err) {
+                console.error('USDZ load error:', err);
+                hideLoading();
+                alert('USDZ 加载失败: ' + err.message);
+            }
+        }
+
         // ===================== DEFAULT MODEL AUTO-LOAD =====================
         async function loadDefaultModel() {
             document.getElementById('welcome').classList.add('hidden');
@@ -1878,6 +2026,8 @@ function updateCameraLocalQuat() {
                     loadSTL(buf, name);
                 } else if (extName.endsWith('.fbx')) {
                     loadFBX(buf, name);
+                } else if (extName.endsWith('.usdz')) {
+                    loadUSDZ(buf, name);
                 } else {
                     loadGLTF(buf, name);
                 }

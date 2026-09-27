@@ -11,3 +11,19 @@ Thumbs.db
 # Temp files
 *.log
 *.tmp
+
+# Default models are dynamic — keep the directory only, do not manage its contents
+default-models/*
+!default-models/.gitkeep
+
+# Local scratch / generated artifacts — never tracked
+*.bak
+*.psd
+index.html.bak*
+temp/
+.workbuddy/
+three-flight-camera/
+favicon-generator.zip
+icon_cropped.png
+A_modern_minimalist_*.png
+A_modern_minimalist_*.psd

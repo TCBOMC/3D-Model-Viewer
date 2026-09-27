@@ -71,6 +71,8 @@ jobs:
           # 2. Generate .gz compressed versions of all model files to save bandwidth
           # -----------------------------------------------------------------
           echo "Generating .gz compressed models..."
+          # NOTE: usdz is itself a ZIP container, so gzip barely shrinks it and
+          # only wastes CPU/bandwidth — it is intentionally excluded here.
           for ext in glb gltf ply obj stl fbx; do
             for f in *.${ext}; do
               if [ -f "$f" ]; then
@@ -86,7 +88,7 @@ jobs:
           # -----------------------------------------------------------------
           echo '{"files":[' > manifest.json
           first=true
-          for ext in glb gltf ply obj stl fbx; do
+          for ext in glb gltf ply obj stl fbx usdz; do
             for f in *.${ext}; do
               if [ -f "$f" ]; then
                 if [ "$first" = true ]; then
