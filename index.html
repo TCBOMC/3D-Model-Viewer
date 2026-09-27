@@ -617,9 +617,13 @@
             // Renderer
             renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
             renderer.setSize(innerWidth, innerHeight);
+            // Quality consistency policy: pixel ratio is set ONCE here and must
+            // NEVER be changed at runtime (no per-model caps, no resize re-set).
             renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
-            renderer.shadowMap.enabled = true;
-            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            // Shadows are disabled by default (viewer-wide, all model formats):
+            // a shadow pass would double the triangle workload for zero visual
+            // gain on typical models.
+            renderer.shadowMap.enabled = false;
             renderer.toneMapping = THREE.ACESFilmicToneMapping;
             renderer.toneMappingExposure = 1.1;
             document.getElementById('canvas-container').appendChild(renderer.domElement);
@@ -638,7 +642,7 @@
 
             const dir = new THREE.DirectionalLight(0xffffff, 1.0);
             dir.position.set(5, 10, 7);
-            dir.castShadow = true;
+            dir.castShadow = false; // shadows disabled viewer-wide
             dir.shadow.mapSize.set(2048, 2048);
             scene.add(dir);
 
@@ -1784,11 +1788,21 @@ function updateCameraLocalQuat() {
                 model.scale.setScalar(scale);
                 model.position.y += size.y * scale * 0.5;
 
-                // Enable shadows
+                // Quality policy (fixed for every model, no per-model tuning):
+                // - No shadows (renderer.shadowMap.enabled is false viewer-wide).
+                // - No backface culling: materials render DoubleSide.
+                // - Frustum culling stays enabled (meshes outside the camera
+                //   frustum are skipped); occlusion culling is permitted but
+                //   three.js has no built-in pass, so frustum culling is the
+                //   effective culling here.
                 model.traverse((child) => {
                     if (child.isMesh) {
-                        child.castShadow = true;
-                        child.receiveShadow = true;
+                        child.castShadow = false;
+                        child.receiveShadow = false;
+                        child.frustumCulled = true;
+                        const applySide = (mat) => { mat.side = THREE.DoubleSide; mat.needsUpdate = true; };
+                        if (Array.isArray(child.material)) child.material.forEach(applySide);
+                        else if (child.material) applySide(child.material);
                     }
                 });
 
