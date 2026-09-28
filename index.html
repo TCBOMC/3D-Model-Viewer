@@ -469,7 +469,7 @@
             <span><kbd>空格</kbd> 上升<br><kbd>Shift</kbd> 下降</span>
             <span><kbd>鼠标</kbd> 环视</span>
             <span><kbd>Q</kbd><kbd>E</kbd> 滚转（飞行模式）</span>
-            <span><kbd>X</kbd><kbd>Y</kbd><kbd>Z</kbd> 参考系回正<br>朝向不变·上方向对齐到轴</span>
+            <span><kbd>X</kbd><kbd>Y</kbd><kbd>Z</kbd> 参考系回正</span>
             <span><kbd>滚轮</kbd> 速度<br><span class="hint-val">[<span id="speed-hint">1.00x</span>]</span></span>
             <span><kbd>Tab</kbd> 移动模式<br><span class="hint-val">[<span id="move-mode-hint">地面</span>]</span></span>
             <span><kbd>Alt</kbd> 切换鼠标模式<br><span class="hint-val">[<span id="mouse-mode-hint">点击锁定</span>]</span></span>
@@ -887,6 +887,7 @@ const FLIGHT_PITCH_MAX =  Math.PI / 2 - 0.01;
         // Ground mode: Euler angles for movement math
         let groundYaw   = 0;
         let groundPitch = 0;
+        const groundFrameQ = new THREE.Quaternion(); // 地面参考系（默认恒等 = 世界水平面），X/Y/Z 回正时旋转
         const GROUND_PITCH_MIN = -Math.PI / 2 + 0.01;
         const GROUND_PITCH_MAX =  Math.PI / 2 - 0.01;
 		
@@ -978,10 +979,12 @@ function updateCameraLocalQuat() {
         );
         camera.quaternion.copy(newLocalQ);
     } else {
-        // ---------- 地面模式（完全保持原样） ----------
+        // ---------- 地面模式：姿态 = 参考系 × Ry(yaw)·Rx(pitch) ----------
         groundPitch = Math.max(GROUND_PITCH_MIN, Math.min(GROUND_PITCH_MAX, groundPitch));
-        camera.quaternion.setFromEuler(
-            new THREE.Euler(groundPitch, groundYaw, 0, 'YXZ')
+        camera.quaternion.copy(groundFrameQ).multiply(
+            new THREE.Quaternion().setFromEuler(
+                new THREE.Euler(groundPitch, groundYaw, 0, 'YXZ')
+            )
         );
         // 但地面模式我们没有使用 body，需将 camera 从 body 中移出？为了简化，我们保持 camera 在场景中，且 body 不参与地面模式。
         // 所以在地面模式时，确保 camera 不在 body 内。
@@ -993,16 +996,19 @@ function updateCameraLocalQuat() {
             camera.position.copy(worldPos);
             camera.quaternion.copy(worldQuat);
         }
-        // 移动逻辑...
-        const fwd = new THREE.Vector3(-Math.sin(groundYaw), 0, -Math.cos(groundYaw));
-        const rgt = new THREE.Vector3( Math.cos(groundYaw), 0, -Math.sin(groundYaw));
+        // 移动逻辑：跟随地面参考系（前后左右沿参考系水平面，升降沿参考系极轴）
+        const yawQ = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, groundYaw, 0, 'YXZ'));
+        const frameYawQ = groundFrameQ.clone().multiply(yawQ); // 参考系 × 视线偏航（不含 pitch）
+        const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(frameYawQ);
+        const rgt = new THREE.Vector3(1, 0, 0).applyQuaternion(frameYawQ);
+        const upAxis = new THREE.Vector3(0, 1, 0).applyQuaternion(groundFrameQ);
         const dir = new THREE.Vector3();
         if (moveState.f) dir.add(fwd);
         if (moveState.b) dir.sub(fwd);
         if (moveState.r) dir.add(rgt);
         if (moveState.l) dir.sub(rgt);
-        if (moveState.u) dir.y += 1;
-        if (moveState.d) dir.y -= 1;
+        if (moveState.u) dir.add(upAxis);
+        if (moveState.d) dir.sub(upAxis);
         if (dir.lengthSq() > 0) {
             dir.normalize().multiplyScalar(spd);
             camera.position.add(dir);
@@ -1011,12 +1017,11 @@ function updateCameraLocalQuat() {
 }
 
         // ===================== REFERENCE FRAME ALIGNMENT (X/Y/Z) =====================
-        // 按下 X/Y/Z：把摄像机参考系（body 的上方向，即极坐标俯仰的死锁轴）
-        // 对齐到对应的世界坐标轴（± 由当前上方向更接近哪端决定）。
-        // 对齐时视线方向保持不变：body 旋转后，把原视线方向在新 body 空间
-        // 中重新分解为 yaw/pitch，局部滚转清零（修正滚转）。这样俯仰到达
-        // ±90° 死锁点时，视线正好落在对应轴上。
-        // 地面模式没有 body，本功能不生效。
+        // 按下 X/Y/Z：把摄像机参考系（飞行 = body 上方向，地面 = groundFrameQ
+        // 的上方向，即该模式极坐标俯仰的死锁轴）对齐到对应的世界坐标轴
+        // （± 由当前上方向更接近哪端决定）。对齐时视线方向保持不变：参考系
+        // 旋转后，把原视线方向在新参考系空间中重新分解为 yaw/pitch（滚转丢弃）。
+        // 这样俯仰到达 ±90° 死锁点时，视线正好落在对应轴上。
         const AXIS_VECTORS = {
             'x': new THREE.Vector3(1, 0, 0),
             'y': new THREE.Vector3(0, 1, 0),
@@ -1024,28 +1029,38 @@ function updateCameraLocalQuat() {
         };
 
         function alignFrameToAxis(axisName) {
-            if (moveMode !== 1 || !body) return; // 仅飞行模式（地面模式无 body）
+            const isFly = moveMode === 1 && body;
+            if (!isFly && moveMode !== 0) return; // 未初始化时不处理
+            const frameQ = isFly ? body.quaternion : groundFrameQ;
 
             const axisVec = AXIS_VECTORS[axisName];
-            const bodyUp = new THREE.Vector3(0, 1, 0).applyQuaternion(body.quaternion);
+            const frameUp = new THREE.Vector3(0, 1, 0).applyQuaternion(frameQ);
 
             // 上方向更接近正方向就对齐到 +轴，反之对齐到 -轴（恰好 90° 时取正）
-            const target = axisVec.clone().multiplyScalar(bodyUp.dot(axisVec) >= 0 ? 1 : -1);
-            if (bodyUp.distanceToSquared(target) < 1e-12) return; // 已对齐，无需处理
+            const target = axisVec.clone().multiplyScalar(frameUp.dot(axisVec) >= 0 ? 1 : -1);
+            if (frameUp.distanceToSquared(target) < 1e-12) return; // 已对齐，无需处理
 
             // 记录当前视线方向（世界空间），对齐后必须保持不变
             const viewWorld = camera.getWorldDirection(new THREE.Vector3());
 
-            // 最小弧旋转：把 body 上方向（参考系极轴）转到目标轴
-            const R = new THREE.Quaternion().setFromUnitVectors(bodyUp, target);
-            body.quaternion.premultiply(R);
+            // 最小弧旋转：把参考系上方向（极轴）转到目标轴
+            const R = new THREE.Quaternion().setFromUnitVectors(frameUp, target);
+            frameQ.premultiply(R);
 
-            // 视线方向在新 body 空间中重新分解为 yaw/pitch（滚转恒为 0）
+            // 视线方向在新参考系空间中重新分解为 yaw/pitch（滚转丢弃）
             // Ry(yaw)·Rx(pitch)·(0,0,-1) = (-cosP·sinY, sinP, -cosP·cosY)
-            const viewLocal = viewWorld.applyQuaternion(body.quaternion.clone().invert());
-            localPitch = Math.asin(THREE.MathUtils.clamp(viewLocal.y, -1, 1));
-            localYaw = Math.atan2(-viewLocal.x, -viewLocal.z);
-            localRoll = 0;
+            const viewLocal = viewWorld.applyQuaternion(frameQ.clone().invert());
+            const pitch = Math.asin(THREE.MathUtils.clamp(viewLocal.y, -1, 1));
+            const yaw = Math.atan2(-viewLocal.x, -viewLocal.z);
+            if (isFly) {
+                localPitch = pitch;
+                localYaw = yaw;
+                localRoll = 0;
+            } else {
+                // 与鼠标环视同一钳制规则（超范围最多偏差 ~0.6°，下次输入前被夹回）
+                groundPitch = Math.max(GROUND_PITCH_MIN, Math.min(GROUND_PITCH_MAX, pitch));
+                groundYaw = yaw;
+            }
         }
 
         // Replace PointerLockControls' default mouse look.
@@ -1102,7 +1117,9 @@ function updateCameraLocalQuat() {
             localRoll = 0;
         }
     } else {
-        // 切换到地面模式（保持原逻辑）
+        // 切换到地面模式：参考系归位（保持地面操控的"水平"手感），
+        // 按世界系欧拉提取角度，摄像机方向不变（无滚转时精确重建）
+        groundFrameQ.identity();
         if (body && camera.parent === body) {
             const worldPos = camera.getWorldPosition(new THREE.Vector3());
             const worldQuat = camera.getWorldQuaternion(new THREE.Quaternion());
